@@ -1,0 +1,1235 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#07070c" />
+  <meta name="description" content="Precificação e controle financeiro para impressão 3D" />
+  <title>Print3D Lucro · Precificação & Payback</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Space Grotesk"', 'system-ui', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+          },
+          colors: {
+            ink: { 950: '#07070c', 900: '#0d0d16', 800: '#141421', 700: '#1e1e2e' },
+            lime: { 400: '#c6f432', 500: '#a8d61c' },
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    :root { color-scheme: dark; }
+    html, body { background: #07070c; }
+    body { font-family: 'Space Grotesk', system-ui, sans-serif; -webkit-tap-highlight-color: transparent; }
+
+    /* Fundo com brilho e grade sutil (lembra mesa de impressão) */
+    .bg-scene {
+      position: fixed; inset: 0; z-index: -1; pointer-events: none;
+      background:
+        radial-gradient(60rem 40rem at 10% -10%, rgba(198,244,50,.10), transparent 60%),
+        radial-gradient(50rem 35rem at 110% 10%, rgba(99,102,241,.16), transparent 60%),
+        radial-gradient(40rem 30rem at 50% 120%, rgba(236,72,153,.10), transparent 60%),
+        #07070c;
+    }
+    .bg-scene::after {
+      content: ""; position: absolute; inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+      background-size: 36px 36px;
+      mask-image: radial-gradient(ellipse at center, #000 30%, transparent 75%);
+    }
+
+    .glass {
+      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.025));
+      border: 1px solid rgba(255,255,255,.08);
+      backdrop-filter: blur(18px) saturate(140%);
+      -webkit-backdrop-filter: blur(18px) saturate(140%);
+      box-shadow: 0 1px 0 rgba(255,255,255,.06) inset, 0 20px 50px -20px rgba(0,0,0,.6);
+    }
+
+    .field {
+      width: 100%;
+      background: rgba(0,0,0,.35);
+      border: 1px solid rgba(255,255,255,.09);
+      border-radius: .75rem;
+      padding: .7rem .85rem;
+      color: #f4f4f5;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .95rem;
+      transition: border-color .15s, box-shadow .15s, background .15s;
+      outline: none;
+    }
+    .field:focus { border-color: rgba(198,244,50,.6); box-shadow: 0 0 0 3px rgba(198,244,50,.12); background: rgba(0,0,0,.5); }
+    .field::placeholder { color: #52525b; }
+    .field.field-locked { background: rgba(255,255,255,.03); border-style: dashed; color: #a1a1aa; cursor: not-allowed; }
+    .field.field-locked:focus { border-color: rgba(255,255,255,.09); box-shadow: none; }
+    .field-wrap { position: relative; }
+    .field-wrap .prefix, .field-wrap .suffix {
+      position: absolute; top: 50%; transform: translateY(-50%);
+      font-size: .78rem; color: #71717a; font-family: 'JetBrains Mono', monospace; pointer-events: none;
+    }
+    .field-wrap .prefix { left: .85rem; }
+    .field-wrap .suffix { right: .85rem; }
+    .field-wrap.has-prefix .field { padding-left: 2.6rem; }
+    .field-wrap.has-suffix .field { padding-right: 3.2rem; }
+
+    .label { display:block; font-size: .78rem; color: #a1a1aa; margin-bottom: .4rem; letter-spacing: .01em; }
+
+    .chip {
+      border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.03);
+      color: #d4d4d8; border-radius: 999px; padding: .4rem .85rem; font-size: .8rem;
+      transition: all .15s; white-space: nowrap;
+    }
+    .chip:hover { border-color: rgba(255,255,255,.25); }
+    .chip.active { background: #c6f432; color: #0a0a0a; border-color: #c6f432; font-weight: 600; }
+
+    .tab-btn { transition: color .2s; }
+    .tab-btn.active { color: #0a0a0a; }
+
+    .num { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+
+    .step-badge {
+      width: 1.75rem; height: 1.75rem; border-radius: .55rem; display:grid; place-items:center;
+      font-family: 'JetBrains Mono', monospace; font-size: .75rem; font-weight: 600;
+      background: rgba(198,244,50,.12); color: #c6f432; border: 1px solid rgba(198,244,50,.25);
+      flex-shrink: 0;
+    }
+
+    .progress-track { background: rgba(255,255,255,.06); border-radius: 999px; overflow: hidden; }
+    .progress-fill {
+      height: 100%; border-radius: 999px;
+      background: linear-gradient(90deg, #6366f1, #a855f7 45%, #c6f432);
+      background-size: 200% 100%;
+      animation: shimmer 4s linear infinite;
+      transition: width .8s cubic-bezier(.2,.8,.2,1);
+      box-shadow: 0 0 24px rgba(198,244,50,.35);
+    }
+    @keyframes shimmer { 0% { background-position: 0% 0; } 100% { background-position: 200% 0; } }
+
+    .fade-in { animation: fadeIn .35s ease both; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+    .toast { animation: toastIn .3s ease both; }
+    @keyframes toastIn { from { opacity:0; transform: translateY(12px) scale(.98); } to { opacity:1; transform:none; } }
+
+    .scroll-thin::-webkit-scrollbar { height: 6px; width: 6px; }
+    .scroll-thin::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 99px; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+    }
+  </style>
+</head>
+
+<body class="min-h-screen text-zinc-100 antialiased">
+  <div class="bg-scene"></div>
+
+  <!-- ===================== HEADER ===================== -->
+  <header class="sticky top-0 z-30 border-b border-white/5 bg-ink-950/70 backdrop-blur-xl">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-lime-400 text-black grid place-items-center shadow-[0_0_30px_rgba(198,244,50,.35)]">
+          <!-- ícone de cubo / camada -->
+          <svg viewBox="0 0 24 24" class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2 3 7l9 5 9-5-9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/>
+          </svg>
+        </div>
+        <div class="leading-tight">
+          <h1 class="font-bold text-lg tracking-tight">Print3D <span class="text-lime-400">Lucro</span></h1>
+          <p class="text-xs text-zinc-500">Precificação & payback da sua impressora</p>
+        </div>
+      </div>
+
+      <!-- Abas -->
+      <nav class="relative grid grid-cols-2 p-1 rounded-2xl glass w-full sm:w-auto" role="tablist">
+        <span id="tabIndicator" class="absolute top-1 bottom-1 left-1 rounded-xl bg-lime-400 transition-all duration-300" style="width: calc(50% - .25rem)"></span>
+        <button class="tab-btn active relative z-10 px-4 sm:px-6 py-2 text-sm font-semibold flex items-center justify-center gap-2" data-tab="calc" role="tab">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 6h8M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/></svg>
+          Calculadora
+        </button>
+        <button class="tab-btn relative z-10 px-4 sm:px-6 py-2 text-sm font-semibold text-zinc-400 flex items-center justify-center gap-2" data-tab="fin" role="tab">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg>
+          Financeiro
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-4 sm:px-6 py-6 pb-24">
+
+    <!-- ===================== ABA 1: CALCULADORA ===================== -->
+    <section id="tab-calc" class="fade-in">
+      <div class="grid lg:grid-cols-5 gap-5">
+
+        <!-- Entradas -->
+        <div class="lg:col-span-3 space-y-4">
+
+          <!-- 1 & 2: Peça -->
+          <div class="glass rounded-2xl p-4 sm:p-5">
+            <div class="flex items-center gap-3 mb-4">
+              <span class="step-badge">01</span>
+              <div>
+                <h2 class="font-semibold">Dados da peça</h2>
+                <p class="text-xs text-zinc-500">Informações do fatiador (Bambu Studio / Orca)</p>
+              </div>
+            </div>
+            <div class="grid sm:grid-cols-3 gap-3">
+              <div class="sm:col-span-3">
+                <label class="label" for="nome">Nome / descrição da peça</label>
+                <input id="nome" data-key="nome" class="field !font-sans" type="text" placeholder="Ex.: Suporte de headset" maxlength="80" />
+              </div>
+              <div>
+                <label class="label" for="peso">Peso da peça</label>
+                <div class="field-wrap has-suffix">
+                  <input id="peso" data-key="peso" class="field" inputmode="decimal" placeholder="79" />
+                  <span class="suffix">g</span>
+                </div>
+              </div>
+              <div>
+                <label class="label" for="horas">Tempo de impressão</label>
+                <div class="field-wrap has-suffix">
+                  <input id="horas" data-key="horas" class="field" inputmode="decimal" placeholder="5.3" />
+                  <span class="suffix">h</span>
+                </div>
+                <p id="horasHint" class="text-[11px] text-zinc-500 mt-1 num">= 5h 18min</p>
+              </div>
+              <div>
+                <label class="label">Material</label>
+                <div class="flex gap-1.5 flex-wrap" id="materialChips">
+                  <button type="button" class="chip" data-material="PLA">PLA</button>
+                  <button type="button" class="chip" data-material="PETG">PETG</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3: Filamento -->
+          <div class="glass rounded-2xl p-4 sm:p-5">
+            <div class="flex items-center gap-3 mb-4">
+              <span class="step-badge">02</span>
+              <div class="flex-1">
+                <h2 class="font-semibold">Custo do filamento</h2>
+                <p class="text-xs text-zinc-500">Valor fixo: rolo de 1 kg por R$ 100,00</p>
+              </div>
+              <span class="text-xs num px-2 py-1 rounded-lg bg-white/5 border border-white/10 text-lime-400" id="custoGramaTag">R$ 0,10/g</span>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="label" for="precoRolo">Preço do rolo<svg class="w-3 h-3 inline -mt-0.5 ml-1 text-zinc-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></label>
+                <div class="field-wrap has-prefix">
+                  <span class="prefix">R$</span>
+                  <input id="precoRolo" data-key="precoRolo" class="field field-locked" readonly tabindex="-1" aria-readonly="true" />
+                </div>
+              </div>
+              <div>
+                <label class="label" for="pesoRolo">Peso do rolo<svg class="w-3 h-3 inline -mt-0.5 ml-1 text-zinc-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></label>
+                <div class="field-wrap has-suffix">
+                  <input id="pesoRolo" data-key="pesoRolo" class="field field-locked" readonly tabindex="-1" aria-readonly="true" />
+                  <span class="suffix">g</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 4 & 5: Energia + Depreciação -->
+          <div class="grid sm:grid-cols-2 gap-4">
+            <div class="glass rounded-2xl p-4 sm:p-5">
+              <div class="flex items-center gap-3 mb-4">
+                <span class="step-badge">03</span>
+                <div>
+                  <h2 class="font-semibold">Energia elétrica</h2>
+                  <p class="text-xs text-zinc-500">Base: Bambu Lab A2L (com margem)</p>
+                </div>
+              </div>
+              <div class="space-y-3">
+                <div>
+                  <label class="label" for="energiaPLA">PLA <span class="text-zinc-600">(por hora)</span></label>
+                  <div class="field-wrap has-prefix has-suffix">
+                    <span class="prefix">R$</span>
+                    <input id="energiaPLA" data-key="energiaPLA" class="field" inputmode="decimal" />
+                    <span class="suffix">/h</span>
+                  </div>
+                </div>
+                <div>
+                  <label class="label" for="energiaPETG">PETG <span class="text-zinc-600">(por hora)</span></label>
+                  <div class="field-wrap has-prefix has-suffix">
+                    <span class="prefix">R$</span>
+                    <input id="energiaPETG" data-key="energiaPETG" class="field" inputmode="decimal" />
+                    <span class="suffix">/h</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="glass rounded-2xl p-4 sm:p-5">
+              <div class="flex items-center gap-3 mb-4">
+                <span class="step-badge">04</span>
+                <div>
+                  <h2 class="font-semibold">Depreciação & manutenção</h2>
+                  <p class="text-xs text-zinc-500">Desgaste de bico, correias, placa…</p>
+                </div>
+              </div>
+              <label class="label" for="depreciacao">Valor por hora de máquina</label>
+              <div class="field-wrap has-prefix has-suffix">
+                <span class="prefix">R$</span>
+                <input id="depreciacao" data-key="depreciacao" class="field" inputmode="decimal" />
+                <span class="suffix">/h</span>
+              </div>
+              <p class="text-[11px] text-zinc-500 mt-2 leading-relaxed">Sugestão padrão: R$ 2,00/h. Cobre peças de reposição e a vida útil do equipamento.</p>
+            </div>
+          </div>
+
+          <!-- 6: Mão de obra -->
+          <div class="glass rounded-2xl p-4 sm:p-5">
+            <div class="flex items-center gap-3 mb-4">
+              <span class="step-badge">05</span>
+              <div>
+                <h2 class="font-semibold">Mão de obra & pós-processamento</h2>
+                <p class="text-xs text-zinc-500">Fatiar, retirar suportes, lixar, embalar</p>
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="label" for="minutosMO">Tempo do operador</label>
+                <div class="field-wrap has-suffix">
+                  <input id="minutosMO" data-key="minutosMO" class="field" inputmode="decimal" />
+                  <span class="suffix">min</span>
+                </div>
+              </div>
+              <div>
+                <label class="label" for="valorHoraMO">Valor da sua hora<svg class="w-3 h-3 inline -mt-0.5 ml-1 text-zinc-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></label>
+                <div class="field-wrap has-prefix has-suffix">
+                  <span class="prefix">R$</span>
+                  <input id="valorHoraMO" data-key="valorHoraMO" class="field field-locked" readonly tabindex="-1" aria-readonly="true" />
+                  <span class="suffix">/h</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 7: Lucro e taxas -->
+          <div class="glass rounded-2xl p-4 sm:p-5">
+            <div class="flex items-center gap-3 mb-4">
+              <span class="step-badge">06</span>
+              <div>
+                <h2 class="font-semibold">Margem de lucro & taxas de venda</h2>
+                <p class="text-xs text-zinc-500">A taxa da plataforma é embutida no preço final</p>
+              </div>
+            </div>
+
+            <div class="grid sm:grid-cols-3 gap-3">
+              <div>
+                <label class="label" for="margem">Lucro sobre o custo</label>
+                <div class="field-wrap has-suffix">
+                  <input id="margem" data-key="margem" class="field" inputmode="decimal" />
+                  <span class="suffix">%</span>
+                </div>
+              </div>
+              <div>
+                <label class="label" for="taxaPct">Taxa da plataforma</label>
+                <div class="field-wrap has-suffix">
+                  <input id="taxaPct" data-key="taxaPct" class="field" inputmode="decimal" />
+                  <span class="suffix">%</span>
+                </div>
+              </div>
+              <div>
+                <label class="label" for="taxaFixa">Taxa fixa por venda</label>
+                <div class="field-wrap has-prefix">
+                  <span class="prefix">R$</span>
+                  <input id="taxaFixa" data-key="taxaFixa" class="field" inputmode="decimal" />
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-3">
+              <p class="text-[11px] text-zinc-500 mb-2">Atalhos de margem</p>
+              <div class="flex gap-1.5 overflow-x-auto scroll-thin pb-1" id="margemChips">
+                <button type="button" class="chip" data-margem="50">50%</button>
+                <button type="button" class="chip" data-margem="80">80%</button>
+                <button type="button" class="chip" data-margem="100">100%</button>
+                <button type="button" class="chip" data-margem="150">150%</button>
+                <button type="button" class="chip" data-margem="200">200%</button>
+              </div>
+            </div>
+            <div class="mt-3">
+              <p class="text-[11px] text-zinc-500 mb-2">Canal de venda <span class="text-zinc-600">(percentuais aproximados — confira as taxas atuais da sua conta)</span></p>
+              <div class="flex gap-1.5 overflow-x-auto scroll-thin pb-1" id="canalChips">
+                <button type="button" class="chip" data-taxa="0" data-fixa="0">PIX / Dinheiro · 0%</button>
+                <button type="button" class="chip" data-taxa="20" data-fixa="4">Shopee · ~20% + R$ 4</button>
+                <button type="button" class="chip" data-taxa="14" data-fixa="0">Mercado Livre · ~14%</button>
+                <button type="button" class="chip" data-taxa="5" data-fixa="0">Cartão · ~5%</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex justify-end">
+            <button id="btnResetCalc" class="text-xs text-zinc-500 hover:text-zinc-300 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg hover:bg-white/5 transition">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+              Restaurar valores padrão
+            </button>
+          </div>
+        </div>
+
+        <!-- Resultado -->
+        <aside class="lg:col-span-2">
+          <div class="lg:sticky lg:top-24 space-y-4">
+            <div class="glass rounded-2xl p-5 relative overflow-hidden">
+              <div class="absolute -top-20 -right-20 w-56 h-56 rounded-full bg-lime-400/10 blur-3xl"></div>
+              <p class="text-xs uppercase tracking-[.18em] text-zinc-500">Preço final de venda sugerido</p>
+              <p id="outFinal" class="num text-4xl sm:text-5xl font-bold text-lime-400 mt-2 tracking-tight">R$ 0,00</p>
+              <p id="outFinalSub" class="text-xs text-zinc-500 mt-1 num">—</p>
+
+              <div class="grid grid-cols-2 gap-2 mt-5">
+                <div class="rounded-xl bg-black/30 border border-white/5 p-3">
+                  <p class="text-[11px] text-zinc-500">Custo de produção</p>
+                  <p id="outCusto" class="num font-semibold mt-0.5">R$ 0,00</p>
+                </div>
+                <div class="rounded-xl bg-black/30 border border-white/5 p-3">
+                  <p class="text-[11px] text-zinc-500">Lucro líquido</p>
+                  <p id="outLucro" class="num font-semibold mt-0.5 text-emerald-400">R$ 0,00</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="glass rounded-2xl p-5">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="font-semibold text-sm">Custo detalhado</h3>
+                <span class="text-[11px] text-zinc-500">por peça</span>
+              </div>
+              <ul id="breakdown" class="space-y-3"></ul>
+
+              <div class="border-t border-dashed border-white/10 mt-4 pt-4 space-y-2 text-sm">
+                <div class="flex justify-between"><span class="text-zinc-400">Custo total de produção</span><span id="bdCusto" class="num font-semibold">R$ 0,00</span></div>
+                <div class="flex justify-between"><span class="text-zinc-400">+ Lucro desejado <span id="bdMargemPct" class="num text-zinc-600"></span></span><span id="bdMargem" class="num">R$ 0,00</span></div>
+                <div class="flex justify-between"><span class="text-zinc-400">+ Taxas da plataforma</span><span id="bdTaxas" class="num text-rose-300">R$ 0,00</span></div>
+                <div class="flex justify-between pt-2 border-t border-white/10"><span class="font-semibold">Preço final</span><span id="bdFinal" class="num font-bold text-lime-400">R$ 0,00</span></div>
+              </div>
+            </div>
+
+            <div id="calcError" class="hidden rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-200 text-sm p-3"></div>
+
+            <button id="btnSave" class="w-full rounded-2xl bg-lime-400 hover:bg-lime-500 active:scale-[.99] text-black font-semibold py-4 flex items-center justify-center gap-2 transition shadow-[0_10px_40px_-10px_rgba(198,244,50,.6)]">
+              <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+              Salvar Venda no Painel Financeiro
+            </button>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ===================== ABA 2: FINANCEIRO ===================== -->
+    <section id="tab-fin" class="hidden fade-in space-y-5">
+
+      <!-- Totais -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div class="glass rounded-2xl p-4">
+          <p class="text-[11px] uppercase tracking-wider text-zinc-500">Faturamento total</p>
+          <p id="stFaturamento" class="num text-xl sm:text-2xl font-bold mt-1">R$ 0,00</p>
+        </div>
+        <div class="glass rounded-2xl p-4">
+          <p class="text-[11px] uppercase tracking-wider text-zinc-500">Lucro líquido total</p>
+          <p id="stLucro" class="num text-xl sm:text-2xl font-bold mt-1 text-emerald-400">R$ 0,00</p>
+        </div>
+        <div class="glass rounded-2xl p-4">
+          <p class="text-[11px] uppercase tracking-wider text-zinc-500">Peças produzidas</p>
+          <p id="stPecas" class="num text-xl sm:text-2xl font-bold mt-1">0</p>
+        </div>
+        <div class="glass rounded-2xl p-4">
+          <p class="text-[11px] uppercase tracking-wider text-zinc-500">Custo de produção</p>
+          <p id="stCusto" class="num text-xl sm:text-2xl font-bold mt-1 text-zinc-300">R$ 0,00</p>
+        </div>
+      </div>
+
+      <!-- Investimento + Payback -->
+      <div class="grid lg:grid-cols-3 gap-4">
+        <div class="glass rounded-2xl p-5">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-9 h-9 rounded-xl bg-indigo-500/15 border border-indigo-400/25 text-indigo-300 grid place-items-center">
+              <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+            </div>
+            <div>
+              <h2 class="font-semibold">Investimento inicial</h2>
+              <p class="text-xs text-zinc-500">Valor total pago na impressora</p>
+            </div>
+          </div>
+          <label class="label" for="investimento">Valor investido</label>
+          <div class="field-wrap has-prefix">
+            <span class="prefix">R$</span>
+            <input id="investimento" class="field text-lg" inputmode="decimal" placeholder="4500,00" />
+          </div>
+          <p class="text-[11px] text-zinc-500 mt-2">Inclua acessórios (AMS, placas, filamentos iniciais) se quiser um payback mais realista.</p>
+        </div>
+
+        <div class="glass rounded-2xl p-5 lg:col-span-2 relative overflow-hidden">
+          <div class="absolute -bottom-24 -left-10 w-72 h-72 rounded-full bg-indigo-500/10 blur-3xl"></div>
+          <div class="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <p class="text-xs uppercase tracking-[.18em] text-zinc-500">Payback da impressora</p>
+              <p class="mt-1 flex items-baseline gap-2">
+                <span id="pbPct" class="num text-4xl font-bold">0%</span>
+                <span id="pbLabel" class="text-sm text-zinc-400">quitado</span>
+              </p>
+            </div>
+            <span id="pbBadge" class="text-xs px-3 py-1.5 rounded-full border border-white/10 bg-white/5 text-zinc-300">Em andamento</span>
+          </div>
+
+          <div class="progress-track h-4 mt-5 relative">
+            <div id="pbFill" class="progress-fill" style="width:0%"></div>
+          </div>
+          <div class="flex justify-between text-[11px] text-zinc-500 num mt-1.5">
+            <span>R$ 0</span><span>25%</span><span>50%</span><span>75%</span><span id="pbMax">R$ 0</span>
+          </div>
+
+          <div class="grid sm:grid-cols-3 gap-2 mt-5">
+            <div class="rounded-xl bg-black/30 border border-white/5 p-3">
+              <p class="text-[11px] text-zinc-500">Já recuperado</p>
+              <p id="pbRecuperado" class="num font-semibold mt-0.5 text-emerald-400">R$ 0,00</p>
+            </div>
+            <div class="rounded-xl bg-black/30 border border-white/5 p-3">
+              <p class="text-[11px] text-zinc-500">Falta para quitar</p>
+              <p id="pbFalta" class="num font-semibold mt-0.5">R$ 0,00</p>
+            </div>
+            <div class="rounded-xl bg-black/30 border border-white/5 p-3">
+              <p class="text-[11px] text-zinc-500">Peças estimadas restantes</p>
+              <p id="pbPecas" class="num font-semibold mt-0.5">—</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Histórico -->
+      <div class="glass rounded-2xl p-4 sm:p-5">
+        <div class="flex flex-col sm:flex-row sm:items-center gap-3 justify-between mb-4">
+          <div>
+            <h2 class="font-semibold">Histórico de vendas</h2>
+            <p id="histCount" class="text-xs text-zinc-500">0 lançamentos</p>
+          </div>
+          <div class="flex gap-2 flex-wrap">
+            <div class="field-wrap has-prefix flex-1 min-w-[160px]">
+              <span class="prefix">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+              </span>
+              <input id="busca" class="field !py-2 !text-sm !font-sans" placeholder="Buscar peça…" />
+            </div>
+            <div class="relative">
+              <button id="btnMenu" class="h-full px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-sm inline-flex items-center gap-1.5 transition">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+                Dados
+              </button>
+              <div id="menuDados" class="hidden absolute right-0 mt-2 w-56 rounded-xl glass !bg-ink-800/95 p-1.5 z-20 text-sm">
+                <button data-action="csv" class="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10">Exportar planilha (CSV)</button>
+                <button data-action="backup" class="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10">Baixar backup (JSON)</button>
+                <button data-action="import" class="w-full text-left px-3 py-2 rounded-lg hover:bg-white/10">Restaurar backup…</button>
+                <div class="h-px bg-white/10 my-1"></div>
+                <button data-action="clear" class="w-full text-left px-3 py-2 rounded-lg hover:bg-rose-500/15 text-rose-300">Apagar todas as vendas</button>
+              </div>
+              <input type="file" id="fileImport" accept="application/json,.json" class="hidden" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Tabela (desktop) -->
+        <div class="hidden md:block overflow-x-auto scroll-thin">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-left text-[11px] uppercase tracking-wider text-zinc-500 border-b border-white/10">
+                <th class="py-2.5 pr-3 font-medium">Data</th>
+                <th class="py-2.5 pr-3 font-medium">Peça</th>
+                <th class="py-2.5 pr-3 font-medium text-right">Qtd</th>
+                <th class="py-2.5 pr-3 font-medium text-right">Custo</th>
+                <th class="py-2.5 pr-3 font-medium text-right">Venda</th>
+                <th class="py-2.5 pr-3 font-medium text-right">Taxas</th>
+                <th class="py-2.5 pr-3 font-medium text-right">Lucro líquido</th>
+                <th class="py-2.5 w-10"></th>
+              </tr>
+            </thead>
+            <tbody id="tbodyVendas"></tbody>
+          </table>
+        </div>
+
+        <!-- Cards (mobile) -->
+        <div id="cardsVendas" class="md:hidden space-y-2.5"></div>
+
+        <div id="emptyState" class="hidden text-center py-12">
+          <div class="w-14 h-14 mx-auto rounded-2xl bg-white/5 border border-white/10 grid place-items-center text-zinc-500 mb-3">
+            <svg class="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 3 7l9 5 9-5-9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/></svg>
+          </div>
+          <p class="font-medium">Nenhuma venda registrada ainda</p>
+          <p class="text-sm text-zinc-500 mt-1">Calcule o preço de uma peça e toque em <span class="text-lime-400">Salvar Venda</span>.</p>
+          <button id="btnGoCalc" class="mt-4 text-sm px-4 py-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition">Ir para a calculadora</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="text-center text-[11px] text-zinc-600 pb-8 px-4">
+    Dados salvos apenas neste navegador (localStorage). Faça backups periodicamente na aba Financeiro → Dados.
+  </footer>
+
+  <!-- ===================== MODAL SALVAR VENDA ===================== -->
+  <div id="modal" class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div id="modalBackdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+    <form id="formVenda" class="relative w-full sm:max-w-md glass !bg-ink-900/95 rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 fade-in max-h-[92vh] overflow-y-auto">
+      <div class="w-10 h-1 rounded-full bg-white/15 mx-auto mb-4 sm:hidden"></div>
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-semibold text-lg">Registrar venda</h3>
+        <button type="button" id="btnCloseModal" class="w-8 h-8 rounded-lg hover:bg-white/10 grid place-items-center text-zinc-400" aria-label="Fechar">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <div class="space-y-3">
+        <div>
+          <label class="label" for="mNome">Nome / descrição da peça</label>
+          <input id="mNome" class="field !font-sans" type="text" maxlength="80" required placeholder="Ex.: Vaso geométrico" />
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="label" for="mData">Data</label>
+            <input id="mData" class="field" type="date" required />
+          </div>
+          <div>
+            <label class="label" for="mQtd">Quantidade</label>
+            <input id="mQtd" class="field" inputmode="numeric" value="1" required />
+          </div>
+        </div>
+        <div>
+          <label class="label" for="mPreco">Preço praticado (por peça)</label>
+          <div class="field-wrap has-prefix">
+            <span class="prefix">R$</span>
+            <input id="mPreco" class="field" inputmode="decimal" required />
+          </div>
+          <p class="text-[11px] text-zinc-500 mt-1">Ajuste se arredondou ou deu desconto. As taxas são recalculadas.</p>
+        </div>
+
+        <div class="rounded-2xl bg-black/30 border border-white/5 p-4 space-y-1.5 text-sm">
+          <div class="flex justify-between"><span class="text-zinc-400">Custo de produção</span><span id="mvCusto" class="num">R$ 0,00</span></div>
+          <div class="flex justify-between"><span class="text-zinc-400">Faturamento</span><span id="mvFat" class="num">R$ 0,00</span></div>
+          <div class="flex justify-between"><span class="text-zinc-400">Taxas</span><span id="mvTaxas" class="num text-rose-300">R$ 0,00</span></div>
+          <div class="flex justify-between pt-2 mt-1 border-t border-white/10"><span class="font-semibold">Lucro líquido</span><span id="mvLucro" class="num font-bold text-emerald-400">R$ 0,00</span></div>
+        </div>
+      </div>
+
+      <button type="submit" class="mt-5 w-full rounded-2xl bg-lime-400 hover:bg-lime-500 text-black font-semibold py-3.5 transition">Confirmar e salvar</button>
+    </form>
+  </div>
+
+  <!-- Toasts -->
+  <div id="toasts" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] flex flex-col gap-2 items-center w-[calc(100%-2rem)] max-w-sm pointer-events-none"></div>
+
+  <script>
+  (() => {
+    'use strict';
+
+    /* ========================= Armazenamento ========================= */
+    const KEYS = {
+      settings: 'print3d_settings_v1',
+      sales: 'print3d_sales_v1',
+      invest: 'print3d_invest_v1',
+    };
+
+    const store = {
+      get(key, fallback) {
+        try {
+          const raw = localStorage.getItem(key);
+          return raw === null ? fallback : JSON.parse(raw);
+        } catch (e) { return fallback; }
+      },
+      set(key, value) {
+        try { localStorage.setItem(key, JSON.stringify(value)); return true; }
+        catch (e) { toast('Não foi possível salvar no navegador.', 'error'); return false; }
+      },
+    };
+
+    const DEFAULTS = {
+      nome: '',
+      peso: '79',
+      horas: '5.3',
+      material: 'PLA',
+      precoRolo: '100',
+      pesoRolo: '1000',
+      energiaPLA: '0.15',
+      energiaPETG: '0.25',
+      depreciacao: '2',
+      minutosMO: '15',
+      valorHoraMO: '30',
+      margem: '100',
+      taxaPct: '0',
+      taxaFixa: '0',
+    };
+
+    // Valores fixos (não editáveis na interface)
+    const FIXED = { precoRolo: '100', pesoRolo: '1000', valorHoraMO: '30' };
+
+    let settings = Object.assign({}, DEFAULTS, store.get(KEYS.settings, {}), FIXED);
+    if (settings.material !== 'PLA' && settings.material !== 'PETG') settings.material = 'PETG';
+    let sales = store.get(KEYS.sales, []);
+    if (!Array.isArray(sales)) sales = [];
+    let investimento = store.get(KEYS.invest, 4500);
+
+    /* ========================= Utilidades ========================= */
+    const $ = (sel, el = document) => el.querySelector(sel);
+    const $$ = (sel, el = document) => Array.from(el.querySelectorAll(sel));
+
+    // Aceita "5.3", "5,3", "4.500,00", "4500"
+    function parseNum(v) {
+      if (v === null || v === undefined) return 0;
+      let s = String(v).trim().replace(/\s/g, '').replace(/^R\$/i, '');
+      if (s === '') return 0;
+      if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+      const n = parseFloat(s);
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+    const fmt = (n) => brl.format(Number.isFinite(n) ? n : 0);
+    const fmtNum = (n, d = 2) => (Number.isFinite(n) ? n : 0).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d });
+    const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+    function escapeHTML(str) {
+      return String(str ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    function todayISO() {
+      const d = new Date();
+      const off = d.getTimezoneOffset();
+      return new Date(d.getTime() - off * 60000).toISOString().slice(0, 10);
+    }
+
+    function fmtDate(iso) {
+      if (!iso) return '—';
+      const [y, m, d] = iso.split('-');
+      return `${d}/${m}/${y}`;
+    }
+
+    function hoursToText(h) {
+      if (!(h > 0)) return '—';
+      const total = Math.round(h * 60);
+      const hh = Math.floor(total / 60);
+      const mm = total % 60;
+      return `= ${hh}h ${String(mm).padStart(2, '0')}min`;
+    }
+
+    function uid() {
+      return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    }
+
+    function toast(msg, type = 'ok') {
+      const colors = {
+        ok: 'border-lime-400/30 text-lime-200',
+        error: 'border-rose-400/30 text-rose-200',
+        info: 'border-indigo-400/30 text-indigo-200',
+      };
+      const el = document.createElement('div');
+      el.className = `toast pointer-events-auto glass !bg-ink-800/95 rounded-xl px-4 py-3 text-sm border ${colors[type] || colors.ok}`;
+      el.textContent = msg;
+      $('#toasts').appendChild(el);
+      setTimeout(() => { el.style.transition = 'opacity .3s'; el.style.opacity = '0'; }, 2600);
+      setTimeout(() => el.remove(), 3000);
+    }
+
+    /* ========================= Abas ========================= */
+    function switchTab(tab) {
+      $$('.tab-btn').forEach((b, i) => {
+        const active = b.dataset.tab === tab;
+        b.classList.toggle('active', active);
+        b.classList.toggle('text-zinc-400', !active);
+        if (active) $('#tabIndicator').style.transform = `translateX(${i * 100}%)`;
+      });
+      $('#tab-calc').classList.toggle('hidden', tab !== 'calc');
+      $('#tab-fin').classList.toggle('hidden', tab !== 'fin');
+      if (tab === 'fin') renderFinance();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      try { history.replaceState(null, '', '#' + tab); } catch (e) {}
+    }
+    $$('.tab-btn').forEach((b) => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+
+    /* ========================= Calculadora ========================= */
+    function fillInputs() {
+      $$('[data-key]').forEach((el) => {
+        el.value = String(settings[el.dataset.key] ?? '').replace('.', ',');
+        if (el.dataset.key === 'nome') el.value = settings.nome || '';
+      });
+      syncChips();
+    }
+
+    function syncChips() {
+      $$('#materialChips .chip').forEach((c) => c.classList.toggle('active', c.dataset.material === settings.material));
+      const m = parseNum(settings.margem);
+      $$('#margemChips .chip').forEach((c) => c.classList.toggle('active', parseNum(c.dataset.margem) === m));
+      const t = parseNum(settings.taxaPct), f = parseNum(settings.taxaFixa);
+      $$('#canalChips .chip').forEach((c) => c.classList.toggle('active', parseNum(c.dataset.taxa) === t && parseNum(c.dataset.fixa) === f));
+    }
+
+    function saveSettings() { store.set(KEYS.settings, settings); }
+
+    function compute(s = settings) {
+      const peso = Math.max(0, parseNum(s.peso));
+      const horas = Math.max(0, parseNum(s.horas));
+      const precoRolo = Math.max(0, parseNum(s.precoRolo));
+      const pesoRolo = Math.max(0, parseNum(s.pesoRolo));
+      const custoGrama = pesoRolo > 0 ? precoRolo / pesoRolo : 0;
+      const energiaHora = s.material === 'PLA' ? parseNum(s.energiaPLA) : parseNum(s.energiaPETG);
+      const deprecHora = Math.max(0, parseNum(s.depreciacao));
+      const minutos = Math.max(0, parseNum(s.minutosMO));
+      const valorHora = Math.max(0, parseNum(s.valorHoraMO));
+      const margem = Math.max(0, parseNum(s.margem));
+      const taxaPct = Math.max(0, parseNum(s.taxaPct));
+      const taxaFixa = Math.max(0, parseNum(s.taxaFixa));
+
+      const filamento = peso * custoGrama;
+      const energia = horas * Math.max(0, energiaHora);
+      const depreciacao = horas * deprecHora;
+      const maoDeObra = (minutos / 60) * valorHora;
+      const custo = filamento + energia + depreciacao + maoDeObra;
+
+      const lucroDesejado = custo * (margem / 100);
+      const base = custo + lucroDesejado;
+
+      let error = null;
+      let final = 0, taxas = 0, lucro = 0;
+      if (taxaPct >= 100) {
+        error = 'A taxa da plataforma precisa ser menor que 100%.';
+      } else {
+        // Preço que, depois de descontadas as taxas, mantém custo + lucro desejado
+        final = (base + taxaFixa) / (1 - taxaPct / 100);
+        taxas = final * (taxaPct / 100) + taxaFixa;
+        lucro = final - taxas - custo;
+      }
+
+      return {
+        peso, horas, custoGrama, energiaHora, filamento, energia, depreciacao, maoDeObra,
+        custo, margem, lucroDesejado, taxaPct, taxaFixa, final, taxas, lucro, error,
+        minutos, valorHora, deprecHora,
+      };
+    }
+
+    let lastCalc = compute();
+
+    function renderCalc() {
+      const r = compute();
+      lastCalc = r;
+
+      $('#custoGramaTag').textContent = `${fmt(r.custoGrama)}/g`;
+      $('#horasHint').textContent = hoursToText(r.horas);
+
+      const items = [
+        { label: 'Filamento', detail: `${fmtNum(r.peso, 0)} g × ${fmt(r.custoGrama)}/g`, value: r.filamento, color: '#c6f432' },
+        { label: `Energia (${settings.material})`, detail: `${fmtNum(r.horas, 1)} h × ${fmt(r.energiaHora)}/h`, value: r.energia, color: '#facc15' },
+        { label: 'Depreciação & manutenção', detail: `${fmtNum(r.horas, 1)} h × ${fmt(r.deprecHora)}/h`, value: r.depreciacao, color: '#818cf8' },
+        { label: 'Mão de obra', detail: `${fmtNum(r.minutos, 0)} min × ${fmt(r.valorHora)}/h`, value: r.maoDeObra, color: '#f472b6' },
+      ];
+
+      $('#breakdown').innerHTML = items.map((it) => {
+        const pct = r.custo > 0 ? (it.value / r.custo) * 100 : 0;
+        return `
+          <li>
+            <div class="flex items-start justify-between gap-3 text-sm">
+              <div class="min-w-0">
+                <p class="flex items-center gap-2"><span class="w-2 h-2 rounded-full shrink-0" style="background:${it.color}"></span>${it.label}</p>
+                <p class="text-[11px] text-zinc-500 num truncate">${it.detail}</p>
+              </div>
+              <div class="text-right shrink-0">
+                <p class="num font-medium">${fmt(it.value)}</p>
+                <p class="text-[11px] text-zinc-500 num">${fmtNum(pct, 0)}%</p>
+              </div>
+            </div>
+            <div class="h-1.5 rounded-full bg-white/5 mt-1.5 overflow-hidden">
+              <div class="h-full rounded-full transition-all duration-500" style="width:${pct}%;background:${it.color}"></div>
+            </div>
+          </li>`;
+      }).join('');
+
+      $('#bdCusto').textContent = fmt(r.custo);
+      $('#bdMargemPct').textContent = `(${fmtNum(r.margem, 0)}%)`;
+      $('#bdMargem').textContent = fmt(r.lucroDesejado);
+      $('#bdTaxas').textContent = fmt(r.taxas);
+      $('#bdFinal').textContent = fmt(r.final);
+
+      $('#outFinal').textContent = fmt(r.final);
+      $('#outCusto').textContent = fmt(r.custo);
+      $('#outLucro').textContent = fmt(r.lucro);
+      $('#outFinalSub').textContent = r.peso > 0 && r.final > 0
+        ? `${fmt(r.final / r.peso)} por grama · ${fmt(r.horas > 0 ? r.lucro / r.horas : 0)} de lucro por hora de máquina`
+        : '—';
+
+      const errBox = $('#calcError');
+      if (r.error) { errBox.textContent = r.error; errBox.classList.remove('hidden'); }
+      else errBox.classList.add('hidden');
+      $('#btnSave').disabled = !!r.error || r.custo <= 0;
+      $('#btnSave').classList.toggle('opacity-50', $('#btnSave').disabled);
+    }
+
+    $$('[data-key]').forEach((el) => {
+      el.addEventListener('input', () => {
+        settings[el.dataset.key] = el.value;
+        saveSettings();
+        syncChips();
+        renderCalc();
+      });
+    });
+
+    $('#materialChips').addEventListener('click', (e) => {
+      const c = e.target.closest('[data-material]');
+      if (!c) return;
+      settings.material = c.dataset.material;
+      saveSettings(); syncChips(); renderCalc();
+    });
+
+    $('#margemChips').addEventListener('click', (e) => {
+      const c = e.target.closest('[data-margem]');
+      if (!c) return;
+      settings.margem = c.dataset.margem;
+      $('#margem').value = c.dataset.margem;
+      saveSettings(); syncChips(); renderCalc();
+    });
+
+    $('#canalChips').addEventListener('click', (e) => {
+      const c = e.target.closest('[data-taxa]');
+      if (!c) return;
+      settings.taxaPct = c.dataset.taxa;
+      settings.taxaFixa = c.dataset.fixa;
+      $('#taxaPct').value = c.dataset.taxa;
+      $('#taxaFixa').value = c.dataset.fixa;
+      saveSettings(); syncChips(); renderCalc();
+    });
+
+    $('#btnResetCalc').addEventListener('click', () => {
+      if (!confirm('Restaurar todos os campos da calculadora para os valores padrão?')) return;
+      settings = Object.assign({}, DEFAULTS);
+      saveSettings(); fillInputs(); renderCalc();
+      toast('Valores padrão restaurados.', 'info');
+    });
+
+    /* ========================= Modal de venda ========================= */
+    let modalCalc = null;
+
+    function openModal() {
+      if (lastCalc.error || lastCalc.custo <= 0) return;
+      modalCalc = { ...lastCalc, material: settings.material };
+      $('#mNome').value = settings.nome || '';
+      $('#mData').value = todayISO();
+      $('#mQtd').value = '1';
+      $('#mPreco').value = fmtNum(round2(modalCalc.final), 2);
+      updateModalPreview();
+      $('#modal').classList.remove('hidden');
+      document.body.style.overflow = 'hidden';
+      setTimeout(() => (settings.nome ? $('#mPreco') : $('#mNome')).focus(), 50);
+    }
+
+    function closeModal() {
+      $('#modal').classList.add('hidden');
+      document.body.style.overflow = '';
+    }
+
+    function modalValues() {
+      const qtd = Math.max(1, Math.floor(parseNum($('#mQtd').value) || 1));
+      const preco = Math.max(0, parseNum($('#mPreco').value));
+      const taxasUnit = preco * (modalCalc.taxaPct / 100) + modalCalc.taxaFixa;
+      const lucroUnit = preco - taxasUnit - modalCalc.custo;
+      return { qtd, preco, taxasUnit, lucroUnit };
+    }
+
+    function updateModalPreview() {
+      if (!modalCalc) return;
+      const v = modalValues();
+      $('#mvCusto').textContent = fmt(modalCalc.custo * v.qtd);
+      $('#mvFat').textContent = fmt(v.preco * v.qtd);
+      $('#mvTaxas').textContent = fmt(v.taxasUnit * v.qtd);
+      const l = $('#mvLucro');
+      l.textContent = fmt(v.lucroUnit * v.qtd);
+      l.classList.toggle('text-emerald-400', v.lucroUnit >= 0);
+      l.classList.toggle('text-rose-400', v.lucroUnit < 0);
+    }
+
+    ['#mQtd', '#mPreco'].forEach((s) => $(s).addEventListener('input', updateModalPreview));
+    $('#btnSave').addEventListener('click', openModal);
+    $('#btnCloseModal').addEventListener('click', closeModal);
+    $('#modalBackdrop').addEventListener('click', closeModal);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#modal').classList.contains('hidden')) closeModal(); });
+
+    $('#formVenda').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const nome = $('#mNome').value.trim();
+      if (!nome) { $('#mNome').focus(); return; }
+      const v = modalValues();
+      if (v.preco <= 0) { toast('Informe um preço de venda válido.', 'error'); return; }
+
+      const venda = {
+        id: uid(),
+        data: $('#mData').value || todayISO(),
+        nome,
+        qtd: v.qtd,
+        custoUnit: round2(modalCalc.custo),
+        precoUnit: round2(v.preco),
+        taxasUnit: round2(v.taxasUnit),
+        lucroUnit: round2(v.lucroUnit),
+        material: modalCalc.material,
+        peso: modalCalc.peso,
+        horas: modalCalc.horas,
+        criadoEm: Date.now(),
+      };
+      sales.push(venda);
+      if (!store.set(KEYS.sales, sales)) { sales.pop(); return; }
+
+      settings.nome = nome;
+      saveSettings();
+      $('#nome').value = nome;
+
+      closeModal();
+      toast(`Venda salva! Lucro de ${fmt(venda.lucroUnit * venda.qtd)} 🎉`);
+      renderFinance();
+    });
+
+    /* ========================= Painel financeiro ========================= */
+    function totals() {
+      return sales.reduce((acc, s) => {
+        acc.faturamento += s.precoUnit * s.qtd;
+        acc.lucro += s.lucroUnit * s.qtd;
+        acc.custo += s.custoUnit * s.qtd;
+        acc.pecas += s.qtd;
+        return acc;
+      }, { faturamento: 0, lucro: 0, custo: 0, pecas: 0 });
+    }
+
+    function renderFinance() {
+      const t = totals();
+      $('#stFaturamento').textContent = fmt(t.faturamento);
+      const stL = $('#stLucro');
+      stL.textContent = fmt(t.lucro);
+      stL.classList.toggle('text-emerald-400', t.lucro >= 0);
+      stL.classList.toggle('text-rose-400', t.lucro < 0);
+      $('#stPecas').textContent = t.pecas.toLocaleString('pt-BR');
+      $('#stCusto').textContent = fmt(t.custo);
+
+      // Payback
+      const inv = Math.max(0, parseNum(investimento));
+      const recuperado = Math.max(0, t.lucro);
+      const pctReal = inv > 0 ? (recuperado / inv) * 100 : 0;
+      const pctBar = Math.min(100, pctReal);
+      const falta = Math.max(0, inv - recuperado);
+      const lucroMedio = t.pecas > 0 ? t.lucro / t.pecas : 0;
+
+      $('#pbPct').textContent = `${fmtNum(pctReal, pctReal < 10 ? 1 : 0)}%`;
+      $('#pbFill').style.width = `${pctBar}%`;
+      $('#pbMax').textContent = fmt(inv).replace(',00', '');
+      $('#pbRecuperado').textContent = fmt(recuperado);
+      $('#pbFalta').textContent = fmt(falta);
+
+      const badge = $('#pbBadge');
+      if (inv <= 0) {
+        badge.textContent = 'Defina o investimento';
+        badge.className = 'text-xs px-3 py-1.5 rounded-full border border-white/10 bg-white/5 text-zinc-400';
+        $('#pbLabel').textContent = 'quitado';
+        $('#pbPecas').textContent = '—';
+      } else if (pctReal >= 100) {
+        badge.textContent = '✓ Impressora quitada!';
+        badge.className = 'text-xs px-3 py-1.5 rounded-full border border-lime-400/40 bg-lime-400/15 text-lime-300 font-semibold';
+        $('#pbLabel').textContent = `quitado · ${fmt(recuperado - inv)} de lucro extra`;
+        $('#pbPecas').textContent = '0';
+      } else {
+        badge.textContent = pctReal >= 50 ? 'Mais da metade!' : 'Em andamento';
+        badge.className = 'text-xs px-3 py-1.5 rounded-full border border-indigo-400/30 bg-indigo-500/10 text-indigo-200';
+        $('#pbLabel').textContent = 'quitado';
+        $('#pbPecas').textContent = lucroMedio > 0
+          ? `≈ ${Math.ceil(falta / lucroMedio).toLocaleString('pt-BR')} peças`
+          : '—';
+      }
+
+      renderHistory();
+    }
+
+    function renderHistory() {
+      const q = $('#busca').value.trim().toLowerCase();
+      const list = sales
+        .filter((s) => !q || s.nome.toLowerCase().includes(q))
+        .sort((a, b) => (b.data || '').localeCompare(a.data || '') || (b.criadoEm || 0) - (a.criadoEm || 0));
+
+      $('#histCount').textContent = `${sales.length} ${sales.length === 1 ? 'lançamento' : 'lançamentos'}${q ? ` · ${list.length} encontrado(s)` : ''}`;
+      $('#emptyState').classList.toggle('hidden', sales.length > 0);
+
+      const lucroClass = (v) => (v >= 0 ? 'text-emerald-400' : 'text-rose-400');
+
+      $('#tbodyVendas').innerHTML = list.map((s) => `
+        <tr class="border-b border-white/5 hover:bg-white/[.03] transition">
+          <td class="py-3 pr-3 num text-zinc-400 whitespace-nowrap">${fmtDate(s.data)}</td>
+          <td class="py-3 pr-3">
+            <p class="font-medium">${escapeHTML(s.nome)}</p>
+            <p class="text-[11px] text-zinc-500 num">${escapeHTML(s.material || '')}${s.peso ? ` · ${fmtNum(s.peso, 0)} g` : ''}${s.horas ? ` · ${fmtNum(s.horas, 1)} h` : ''}</p>
+          </td>
+          <td class="py-3 pr-3 num text-right">${s.qtd}</td>
+          <td class="py-3 pr-3 num text-right text-zinc-400">${fmt(s.custoUnit * s.qtd)}</td>
+          <td class="py-3 pr-3 num text-right">${fmt(s.precoUnit * s.qtd)}</td>
+          <td class="py-3 pr-3 num text-right text-rose-300/80">${fmt((s.taxasUnit || 0) * s.qtd)}</td>
+          <td class="py-3 pr-3 num text-right font-semibold ${lucroClass(s.lucroUnit)}">${fmt(s.lucroUnit * s.qtd)}</td>
+          <td class="py-3 text-right">
+            <button class="w-8 h-8 rounded-lg hover:bg-rose-500/15 text-zinc-500 hover:text-rose-300 grid place-items-center transition" data-del="${s.id}" title="Excluir lançamento" aria-label="Excluir">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+            </button>
+          </td>
+        </tr>`).join('');
+
+      $('#cardsVendas').innerHTML = list.map((s) => `
+        <div class="rounded-xl bg-black/30 border border-white/5 p-3.5">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <p class="font-medium truncate">${escapeHTML(s.nome)}</p>
+              <p class="text-[11px] text-zinc-500 num">${fmtDate(s.data)} · ${s.qtd}x · ${escapeHTML(s.material || '')}</p>
+            </div>
+            <button class="w-8 h-8 -mr-1 -mt-1 rounded-lg hover:bg-rose-500/15 text-zinc-500 hover:text-rose-300 grid place-items-center shrink-0" data-del="${s.id}" aria-label="Excluir">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+            </button>
+          </div>
+          <div class="grid grid-cols-3 gap-2 mt-3 text-xs">
+            <div><p class="text-zinc-500">Custo</p><p class="num text-zinc-300">${fmt(s.custoUnit * s.qtd)}</p></div>
+            <div><p class="text-zinc-500">Venda</p><p class="num">${fmt(s.precoUnit * s.qtd)}</p></div>
+            <div class="text-right"><p class="text-zinc-500">Lucro</p><p class="num font-semibold ${lucroClass(s.lucroUnit)}">${fmt(s.lucroUnit * s.qtd)}</p></div>
+          </div>
+        </div>`).join('');
+
+      if (sales.length > 0 && list.length === 0) {
+        $('#cardsVendas').innerHTML = `<p class="text-center text-sm text-zinc-500 py-6">Nenhuma peça encontrada.</p>`;
+        $('#tbodyVendas').innerHTML = `<tr><td colspan="8" class="text-center text-sm text-zinc-500 py-8">Nenhuma peça encontrada.</td></tr>`;
+      }
+    }
+
+    function deleteSale(id) {
+      const s = sales.find((x) => x.id === id);
+      if (!s) return;
+      if (!confirm(`Excluir o lançamento "${s.nome}" (${fmtDate(s.data)})?`)) return;
+      sales = sales.filter((x) => x.id !== id);
+      store.set(KEYS.sales, sales);
+      renderFinance();
+      toast('Lançamento excluído.', 'info');
+    }
+
+    document.addEventListener('click', (e) => {
+      const del = e.target.closest('[data-del]');
+      if (del) deleteSale(del.dataset.del);
+    });
+
+    $('#busca').addEventListener('input', renderHistory);
+    $('#btnGoCalc').addEventListener('click', () => switchTab('calc'));
+
+    const invInput = $('#investimento');
+    invInput.value = fmtNum(parseNum(investimento), 2);
+    invInput.addEventListener('input', () => {
+      investimento = parseNum(invInput.value);
+      store.set(KEYS.invest, investimento);
+      renderFinance();
+    });
+    invInput.addEventListener('blur', () => { invInput.value = fmtNum(parseNum(investimento), 2); });
+
+    /* ========================= Exportar / backup ========================= */
+    function download(filename, content, type) {
+      const blob = new Blob([content], { type });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    function exportCSV() {
+      if (!sales.length) { toast('Não há vendas para exportar.', 'info'); return; }
+      const n = (v) => fmtNum(v, 2);
+      const header = ['Data', 'Peça', 'Material', 'Peso (g)', 'Tempo (h)', 'Quantidade', 'Custo unit.', 'Preço unit.', 'Taxas unit.', 'Lucro unit.', 'Custo total', 'Faturamento', 'Lucro líquido'];
+      const rows = sales.map((s) => [
+        fmtDate(s.data), `"${String(s.nome).replace(/"/g, '""')}"`, s.material || '', fmtNum(s.peso || 0, 0), fmtNum(s.horas || 0, 1), s.qtd,
+        n(s.custoUnit), n(s.precoUnit), n(s.taxasUnit || 0), n(s.lucroUnit),
+        n(s.custoUnit * s.qtd), n(s.precoUnit * s.qtd), n(s.lucroUnit * s.qtd),
+      ].join(';'));
+      download(`vendas-impressao3d-${todayISO()}.csv`, '\uFEFF' + [header.join(';'), ...rows].join('\n'), 'text/csv;charset=utf-8');
+    }
+
+    function exportBackup() {
+      const data = { app: 'print3d-lucro', versao: 1, exportadoEm: new Date().toISOString(), settings, sales, investimento };
+      download(`backup-print3d-${todayISO()}.json`, JSON.stringify(data, null, 2), 'application/json');
+      toast('Backup baixado.', 'info');
+    }
+
+    function importBackup(file) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const data = JSON.parse(reader.result);
+          if (!data || !Array.isArray(data.sales)) throw new Error('formato');
+          const valid = data.sales.filter((s) => s && typeof s.nome === 'string' && Number.isFinite(Number(s.precoUnit)));
+          if (!confirm(`Restaurar backup com ${valid.length} venda(s)? Os dados atuais serão substituídos.`)) return;
+          sales = valid.map((s) => ({
+            ...s,
+            id: s.id || uid(),
+            qtd: Math.max(1, Number(s.qtd) || 1),
+            custoUnit: Number(s.custoUnit) || 0,
+            precoUnit: Number(s.precoUnit) || 0,
+            taxasUnit: Number(s.taxasUnit) || 0,
+            lucroUnit: Number(s.lucroUnit) || 0,
+          }));
+          if (data.settings && typeof data.settings === 'object') {
+            settings = Object.assign({}, DEFAULTS, data.settings, FIXED);
+            if (settings.material !== 'PLA' && settings.material !== 'PETG') settings.material = 'PETG';
+          }
+          if (data.investimento !== undefined) investimento = parseNum(data.investimento);
+          store.set(KEYS.sales, sales);
+          store.set(KEYS.settings, settings);
+          store.set(KEYS.invest, investimento);
+          fillInputs(); renderCalc();
+          invInput.value = fmtNum(parseNum(investimento), 2);
+          renderFinance();
+          toast('Backup restaurado com sucesso.');
+        } catch (e) {
+          toast('Arquivo de backup inválido.', 'error');
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    const menu = $('#menuDados');
+    $('#btnMenu').addEventListener('click', (e) => { e.stopPropagation(); menu.classList.toggle('hidden'); });
+    document.addEventListener('click', (e) => { if (!e.target.closest('#menuDados')) menu.classList.add('hidden'); });
+    menu.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      menu.classList.add('hidden');
+      const a = btn.dataset.action;
+      if (a === 'csv') exportCSV();
+      if (a === 'backup') exportBackup();
+      if (a === 'import') $('#fileImport').click();
+      if (a === 'clear') {
+        if (!sales.length) { toast('Não há vendas para apagar.', 'info'); return; }
+        if (!confirm('Apagar TODAS as vendas registradas? Essa ação não pode ser desfeita.\n\nDica: baixe um backup antes.')) return;
+        sales = [];
+        store.set(KEYS.sales, sales);
+        renderFinance();
+        toast('Histórico apagado.', 'info');
+      }
+    });
+    $('#fileImport').addEventListener('change', (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (f) importBackup(f);
+      e.target.value = '';
+    });
+
+    /* ========================= Início ========================= */
+    fillInputs();
+    renderCalc();
+    renderFinance();
+    switchTab(location.hash === '#fin' ? 'fin' : 'calc');
+  })();
+  </script>
+</body>
+</html>
