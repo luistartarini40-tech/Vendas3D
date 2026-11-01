@@ -513,6 +513,42 @@
         </div>
       </div>
 
+      <!-- Nuvem -->
+      <div class="glass rounded-2xl p-4 sm:p-5">
+        <div class="flex items-start justify-between gap-3 flex-wrap mb-4">
+          <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-xl bg-sky-500/15 border border-sky-400/25 text-sky-300 grid place-items-center">
+              <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H8a6 6 0 1 1 5.7-7.9A4.5 4.5 0 1 1 17.5 19Z"/></svg>
+            </div>
+            <div>
+              <h2 class="font-semibold">Nuvem · Google Planilhas</h2>
+              <p class="text-xs text-zinc-500">Mesmos dados no celular e no computador</p>
+            </div>
+          </div>
+          <span id="cloudStatus" class="text-xs px-3 py-1.5 rounded-full border border-white/10 bg-white/5 text-zinc-400">Desconectado</span>
+        </div>
+
+        <div id="cloudForm" class="grid sm:grid-cols-[1fr_200px_auto] gap-3 items-end">
+          <div>
+            <label class="label" for="cloudUrl">URL do App da Web (termina em /exec)</label>
+            <input id="cloudUrl" class="field !text-xs" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" spellcheck="false" />
+          </div>
+          <div>
+            <label class="label" for="cloudKey">Chave de acesso</label>
+            <input id="cloudKey" class="field !text-xs" type="password" placeholder="sua-chave" autocomplete="off" spellcheck="false" />
+          </div>
+          <button id="btnCloudConnect" class="rounded-xl bg-sky-400 hover:bg-sky-300 text-black font-semibold px-5 py-3 text-sm transition">Conectar</button>
+        </div>
+
+        <div id="cloudConnected" class="hidden flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
+          <p class="text-sm text-zinc-400">Cada venda é salva automaticamente na sua planilha. <span id="cloudLast" class="text-zinc-500 num"></span></p>
+          <div class="flex gap-2">
+            <button id="btnCloudSync" class="px-4 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-sm transition">Sincronizar agora</button>
+            <button id="btnCloudOff" class="px-4 py-2 rounded-xl border border-white/10 hover:bg-rose-500/15 hover:text-rose-300 text-sm text-zinc-400 transition">Desconectar</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Histórico -->
       <div class="glass rounded-2xl p-4 sm:p-5">
         <div class="flex flex-col sm:flex-row sm:items-center gap-3 justify-between mb-4">
@@ -642,6 +678,8 @@
       settings: 'print3d_settings_v1',
       sales: 'print3d_sales_v1',
       invest: 'print3d_invest_v1',
+      cloud: 'print3d_cloud_v1',
+      queue: 'print3d_queue_v1',
     };
 
     const store = {
@@ -987,6 +1025,7 @@
       };
       sales.push(venda);
       if (!store.set(KEYS.sales, sales)) { sales.pop(); return; }
+      cloudQueue('add', { sale: venda });
 
       settings.nome = nome;
       saveSettings();
@@ -1115,6 +1154,7 @@
       if (!confirm(`Excluir o lançamento "${s.nome}" (${fmtDate(s.data)})?`)) return;
       sales = sales.filter((x) => x.id !== id);
       store.set(KEYS.sales, sales);
+      cloudQueue('delete', { id });
       renderFinance();
       toast('Lançamento excluído.', 'info');
     }
@@ -1128,11 +1168,14 @@
     $('#btnGoCalc').addEventListener('click', () => switchTab('calc'));
 
     const invInput = $('#investimento');
+    let investTimer = null;
     invInput.value = fmtNum(parseNum(investimento), 2);
     invInput.addEventListener('input', () => {
       investimento = parseNum(invInput.value);
       store.set(KEYS.invest, investimento);
       renderFinance();
+      clearTimeout(investTimer);
+      investTimer = setTimeout(() => cloudQueue('setInvest', { value: investimento }), 900);
     });
     invInput.addEventListener('blur', () => { invInput.value = fmtNum(parseNum(investimento), 2); });
 
@@ -1192,6 +1235,7 @@
           fillInputs(); renderCalc();
           invInput.value = fmtNum(parseNum(investimento), 2);
           renderFinance();
+          cloudQueue('replaceAll', { sales, investimento });
           toast('Backup restaurado com sucesso.');
         } catch (e) {
           toast('Arquivo de backup inválido.', 'error');
@@ -1216,6 +1260,7 @@
         if (!confirm('Apagar TODAS as vendas registradas? Essa ação não pode ser desfeita.\n\nDica: baixe um backup antes.')) return;
         sales = [];
         store.set(KEYS.sales, sales);
+        cloudQueue('clear', {});
         renderFinance();
         toast('Histórico apagado.', 'info');
       }
@@ -1226,11 +1271,178 @@
       e.target.value = '';
     });
 
+    /* ========================= Nuvem (Google Planilhas) ========================= */
+    let cloud = store.get(KEYS.cloud, null);
+    if (!cloud || !cloud.url || !cloud.key) cloud = null;
+    let queue = store.get(KEYS.queue, []);
+    if (!Array.isArray(queue)) queue = [];
+    let flushing = false;
+    let lastPull = 0;
+
+    function normalizeSales(list) {
+      return (Array.isArray(list) ? list : [])
+        .filter((s) => s && s.id && typeof s.nome === 'string')
+        .map((s) => ({
+          ...s,
+          id: String(s.id),
+          qtd: Math.max(1, Number(s.qtd) || 1),
+          peso: Number(s.peso) || 0,
+          horas: Number(s.horas) || 0,
+          custoUnit: Number(s.custoUnit) || 0,
+          precoUnit: Number(s.precoUnit) || 0,
+          taxasUnit: Number(s.taxasUnit) || 0,
+          lucroUnit: Number(s.lucroUnit) || 0,
+          criadoEm: Number(s.criadoEm) || 0,
+        }));
+    }
+
+    async function api(action, payload = {}, conf = cloud) {
+      const res = await fetch(conf.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ key: conf.key, action, ...payload }),
+        redirect: 'follow',
+      });
+      let data;
+      try { data = await res.json(); }
+      catch (e) { throw new Error('A planilha não respondeu corretamente. Confira a URL e se a implantação está como "Qualquer pessoa".'); }
+      if (!data.ok) throw new Error(data.erro || 'Erro na planilha.');
+      return data;
+    }
+
+    function setCloudStatus(state, msg) {
+      const el = $('#cloudStatus');
+      const map = {
+        off: ['Desconectado', 'border-white/10 bg-white/5 text-zinc-400'],
+        sync: ['Sincronizando…', 'border-sky-400/30 bg-sky-500/10 text-sky-200'],
+        ok: ['✓ Sincronizado', 'border-lime-400/40 bg-lime-400/15 text-lime-300'],
+        pending: [`${queue.length} alteração(ões) pendente(s)`, 'border-amber-400/30 bg-amber-500/10 text-amber-200'],
+        error: ['Erro de sincronização', 'border-rose-400/30 bg-rose-500/10 text-rose-200'],
+      };
+      const [label, cls] = map[state] || map.off;
+      el.textContent = label;
+      el.title = msg || '';
+      el.className = `text-xs px-3 py-1.5 rounded-full border ${cls}`;
+      if (state === 'ok') $('#cloudLast').textContent = `Última sincronização: ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+    }
+
+    function renderCloud() {
+      $('#cloudForm').classList.toggle('hidden', !!cloud);
+      $('#cloudConnected').classList.toggle('hidden', !cloud);
+      if (!cloud) setCloudStatus('off');
+    }
+
+    function cloudQueue(action, payload) {
+      if (!cloud) return;
+      if (action === 'setInvest') queue = queue.filter((op) => op.action !== 'setInvest');
+      if (action === 'replaceAll' || action === 'clear') queue = queue.filter((op) => op.action === 'setInvest');
+      queue.push({ action, payload });
+      store.set(KEYS.queue, queue);
+      flushQueue();
+    }
+
+    async function flushQueue() {
+      if (!cloud || flushing) return;
+      if (!queue.length) return;
+      flushing = true;
+      setCloudStatus('sync');
+      try {
+        while (queue.length) {
+          const op = queue[0];
+          await api(op.action, op.payload);
+          queue.shift();
+          store.set(KEYS.queue, queue);
+        }
+        setCloudStatus('ok');
+      } catch (e) {
+        setCloudStatus(navigator.onLine === false ? 'pending' : 'error', e.message);
+      } finally {
+        flushing = false;
+      }
+    }
+
+    async function pullCloud(showToast = false) {
+      if (!cloud) return;
+      lastPull = Date.now();
+      await flushQueue();
+      if (queue.length) return; // ainda há envios pendentes: não sobrescrever os dados locais
+      setCloudStatus('sync');
+      try {
+        const data = await api('load');
+        sales = normalizeSales(data.sales);
+        store.set(KEYS.sales, sales);
+        if (data.investimento !== null && data.investimento !== undefined) {
+          investimento = parseNum(data.investimento);
+          store.set(KEYS.invest, investimento);
+          if (document.activeElement !== invInput) invInput.value = fmtNum(parseNum(investimento), 2);
+        }
+        renderFinance();
+        setCloudStatus('ok');
+        if (showToast) toast('Dados sincronizados com a planilha.');
+      } catch (e) {
+        setCloudStatus(navigator.onLine === false ? 'pending' : 'error', e.message);
+        if (showToast) toast(e.message, 'error');
+      }
+    }
+
+    $('#btnCloudConnect').addEventListener('click', async () => {
+      const url = $('#cloudUrl').value.trim();
+      const key = $('#cloudKey').value.trim();
+      if (!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(url)) {
+        toast('A URL deve começar com https://script.google.com/macros/s/ e terminar com /exec', 'error');
+        return;
+      }
+      if (!key) { toast('Informe a chave de acesso.', 'error'); return; }
+      const conf = { url, key };
+      const btn = $('#btnCloudConnect');
+      btn.disabled = true; btn.textContent = 'Conectando…';
+      try {
+        const data = await api('load', {}, conf);
+        // Junta o que já está na planilha com o que existe neste aparelho
+        const remote = normalizeSales(data.sales);
+        const ids = new Set(remote.map((s) => s.id));
+        const merged = remote.concat(sales.filter((s) => !ids.has(String(s.id))));
+        const inv = data.investimento !== null && data.investimento !== undefined ? parseNum(data.investimento) : investimento;
+        if (merged.length !== remote.length || data.investimento === null || data.investimento === undefined) {
+          await api('replaceAll', { sales: merged, investimento: inv }, conf);
+        }
+        cloud = conf;
+        store.set(KEYS.cloud, cloud);
+        queue = []; store.set(KEYS.queue, queue);
+        sales = merged; store.set(KEYS.sales, sales);
+        investimento = inv; store.set(KEYS.invest, investimento);
+        invInput.value = fmtNum(parseNum(investimento), 2);
+        renderCloud(); renderFinance(); setCloudStatus('ok');
+        toast(`Conectado! ${merged.length} venda(s) na planilha.`);
+      } catch (e) {
+        toast(e.message === 'Failed to fetch' ? 'Não foi possível acessar a URL. Confira se ela está correta.' : e.message, 'error');
+      } finally {
+        btn.disabled = false; btn.textContent = 'Conectar';
+      }
+    });
+
+    $('#btnCloudSync').addEventListener('click', () => pullCloud(true));
+    $('#btnCloudOff').addEventListener('click', () => {
+      if (!confirm('Desconectar da planilha? Os dados continuam salvos neste navegador e na planilha.')) return;
+      cloud = null; queue = [];
+      try { localStorage.removeItem(KEYS.cloud); localStorage.removeItem(KEYS.queue); } catch (e) {}
+      $('#cloudUrl').value = ''; $('#cloudKey').value = '';
+      renderCloud();
+      toast('Desconectado da planilha.', 'info');
+    });
+
+    window.addEventListener('online', () => pullCloud());
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && Date.now() - lastPull > 30000) pullCloud();
+    });
+
     /* ========================= Início ========================= */
     fillInputs();
     renderCalc();
     renderFinance();
     switchTab(location.hash === '#fin' ? 'fin' : 'calc');
+    renderCloud();
+    if (cloud) pullCloud();
   })();
   </script>
 </body>
