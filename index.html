@@ -1415,7 +1415,7 @@
         renderCloud(); renderFinance(); setCloudStatus('ok');
         toast(`Conectado! ${merged.length} venda(s) na planilha.`);
       } catch (e) {
-        toast(e.message === 'Failed to fetch' ? 'Não foi possível acessar a URL. Confira se ela está correta.' : e.message, 'error');
+        toast(/fetch|network|load failed/i.test(e.message) ? 'O Google bloqueou o acesso. Na implantação, "Quem pode acessar" precisa estar como "Qualquer pessoa" (e o script autorizado).' : e.message, 'error');
       } finally {
         btn.disabled = false; btn.textContent = 'Conectar';
       }
