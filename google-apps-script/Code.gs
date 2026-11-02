@@ -1,5 +1,5 @@
 /**
- * Planilha · API de sincronização com Google Planilhas (versão 2: clientes e pagamentos)
+ * Planilha · API de sincronização com Google Planilhas (versão 3: clientes, pagamentos e produtos)
  *
  * Como usar:
  * 1. Crie uma planilha no Google Planilhas.
@@ -17,17 +17,22 @@
 
 const CHAVE = 'COLE_AQUI_SUA_CHAVE';
 
-const VERSAO = 2;
+const VERSAO = 3;
 const ABA_VENDAS = 'Vendas';
 const ABA_CLIENTES = 'Clientes';
+const ABA_PRODUTOS = 'Produtos';
 const ABA_CONFIG = 'Config';
 const COLUNAS = [
   'ID', 'Data', 'Peça', 'Material', 'Peso (g)', 'Tempo (h)', 'Quantidade',
   'Custo unit.', 'Preço unit.', 'Taxas unit.', 'Lucro unit.',
   'Custo total', 'Faturamento', 'Lucro líquido', 'Criado em',
-  'Cliente', 'Status', 'Pago em', 'Cliente ID', 'Taxa %', 'Taxa fixa',
+  'Cliente', 'Status', 'Pago em', 'Cliente ID', 'Taxa %', 'Taxa fixa', 'Produto ID',
 ];
 const COLUNAS_CLIENTES = ['ID', 'Nome', 'WhatsApp', 'Criado em'];
+const COLUNAS_PRODUTOS = [
+  'ID', 'Produto', 'Material', 'Peso total (g)', 'Tempo total (h)', 'Peças por impressão', 'Seu tempo (min)',
+  'Margem %', 'Taxa %', 'Taxa fixa', 'Custo por peça', 'Preço por peça', 'Criado em', 'Atualizado em',
+];
 
 /* ------------------------------------------------------------------ */
 
@@ -53,7 +58,7 @@ function doPost(e) {
       case 'ping':
         return saida({ ok: true, versao: VERSAO });
       case 'load':
-        return saida({ ok: true, versao: VERSAO, sales: lerVendas(), clients: lerClientes(), investimento: lerInvestimento() });
+        return saida({ ok: true, versao: VERSAO, sales: lerVendas(), clients: lerClientes(), products: lerProdutos(), investimento: lerInvestimento() });
       case 'add':
         adicionarVenda(req.sale);
         return saida({ ok: true });
@@ -75,8 +80,14 @@ function doPost(e) {
       case 'deleteClient':
         excluirCliente(req.id);
         return saida({ ok: true });
+      case 'saveProduct':
+        salvarProduto(req.product);
+        return saida({ ok: true });
+      case 'deleteProduct':
+        excluirProduto(req.id);
+        return saida({ ok: true });
       case 'replaceAll':
-        substituirTudo(req.sales || [], req.investimento, req.clients);
+        substituirTudo(req.sales || [], req.investimento, req.clients, req.products);
         return saida({ ok: true });
       default:
         return saida({ ok: false, erro: 'Ação desconhecida.' });
@@ -119,6 +130,7 @@ function abaVendas() {
     sh.getRange('O2:O').setNumberFormat('dd/mm/yyyy hh:mm');
     sh.getRange('R2:R').setNumberFormat('dd/mm/yyyy hh:mm');
     sh.getRange('S2:S').setNumberFormat('@');
+    sh.getRange('V2:V').setNumberFormat('@');
     sh.setColumnWidth(3, 220);
     sh.setColumnWidth(16, 160);
   }
@@ -193,6 +205,7 @@ function linhaDaVenda(s) {
     String(s.clienteId || ''),
     s.taxaPct === undefined || s.taxaPct === null ? '' : num(s.taxaPct),
     s.taxaFixa === undefined || s.taxaFixa === null ? '' : num(s.taxaFixa),
+    String(s.produtoId || ''),
   ];
 }
 
@@ -225,6 +238,7 @@ function lerVendas() {
       };
       if (r[19] !== '' && r[19] !== null) v.taxaPct = num(r[19]);
       if (r[20] !== '' && r[20] !== null) v.taxaFixa = num(r[20]);
+      v.produtoId = String(r[21] || '');
       return v;
     });
 }
@@ -300,6 +314,61 @@ function excluirCliente(id) {
   if (row !== -1) sh.deleteRow(row);
 }
 
+/* ---------------------------- Produtos ----------------------------- */
+
+function abaProdutos() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(ABA_PRODUTOS);
+  if (!sh) {
+    sh = ss.insertSheet(ABA_PRODUTOS);
+    cabecalho(sh, COLUNAS_PRODUTOS, '#fde68a');
+    sh.getRange('A2:A').setNumberFormat('@');
+    sh.getRange('K2:L').setNumberFormat('"R$" #,##0.00');
+    sh.getRange('M2:N').setNumberFormat('dd/mm/yyyy hh:mm');
+    sh.setColumnWidth(2, 220);
+  }
+  return sh;
+}
+
+function linhaDoProduto(p) {
+  return [
+    String(p.id), String(p.nome || ''), String(p.material || ''),
+    num(p.pesoTotal), num(p.horasTotal), Math.max(1, num(p.pecas)), num(p.minutosMO),
+    num(p.margem), num(p.taxaPct), num(p.taxaFixa), num(p.custoUnit), num(p.precoUnit),
+    p.criadoEm ? new Date(num(p.criadoEm)) : new Date(),
+    p.atualizadoEm ? new Date(num(p.atualizadoEm)) : new Date(),
+  ];
+}
+
+function lerProdutos() {
+  const sh = abaProdutos();
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  return sh.getRange(2, 1, last - 1, COLUNAS_PRODUTOS.length).getValues()
+    .filter((r) => r[0] !== '' && r[0] !== null)
+    .map((r) => ({
+      id: String(r[0]), nome: String(r[1] || ''), material: String(r[2] || ''),
+      pesoTotal: num(r[3]), horasTotal: num(r[4]), pecas: Math.max(1, num(r[5])), minutosMO: num(r[6]),
+      margem: num(r[7]), taxaPct: num(r[8]), taxaFixa: num(r[9]), custoUnit: num(r[10]), precoUnit: num(r[11]),
+      criadoEm: r[12] instanceof Date ? r[12].getTime() : 0,
+      atualizadoEm: r[13] instanceof Date ? r[13].getTime() : 0,
+    }));
+}
+
+function salvarProduto(p) {
+  if (!p || !p.id) throw new Error('Produto sem ID.');
+  const sh = abaProdutos();
+  const row = linhaDoId(sh, p.id);
+  if (row === -1) sh.appendRow(linhaDoProduto(p));
+  else sh.getRange(row, 1, 1, COLUNAS_PRODUTOS.length).setValues([linhaDoProduto(p)]);
+}
+
+function excluirProduto(id) {
+  const sh = abaProdutos();
+  const row = linhaDoId(sh, id);
+  if (row !== -1) sh.deleteRow(row);
+}
+
 /* ------------------------------------------------------------------ */
 
 function lerInvestimento() {
@@ -311,7 +380,7 @@ function salvarInvestimento(v) {
   abaConfig().getRange('B1').setValue(num(v));
 }
 
-function substituirTudo(lista, investimento, clientes) {
+function substituirTudo(lista, investimento, clientes, produtos) {
   limparVendas();
   const sh = abaVendas();
   const linhas = lista.filter((s) => s && s.id).map(linhaDaVenda);
@@ -323,5 +392,12 @@ function substituirTudo(lista, investimento, clientes) {
     if (last > 1) shc.deleteRows(2, last - 1);
     const lc = clientes.filter((c) => c && c.id).map(linhaDoCliente);
     if (lc.length) shc.getRange(2, 1, lc.length, COLUNAS_CLIENTES.length).setValues(lc);
+  }
+  if (Array.isArray(produtos)) {
+    const shp = abaProdutos();
+    const last = shp.getLastRow();
+    if (last > 1) shp.deleteRows(2, last - 1);
+    const lp = produtos.filter((p) => p && p.id).map(linhaDoProduto);
+    if (lp.length) shp.getRange(2, 1, lp.length, COLUNAS_PRODUTOS.length).setValues(lp);
   }
 }
