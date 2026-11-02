@@ -1,31 +1,38 @@
 /**
- * Planilha · API de sincronização com Google Planilhas
+ * Planilha · API de sincronização com Google Planilhas (versão 2: clientes e pagamentos)
  *
  * Como usar:
  * 1. Crie uma planilha no Google Planilhas.
- * 2. Menu Extensões → Apps Script. Apague o conteúdo e cole este arquivo inteiro.
+ * 2. Menu Extensões → Apps Script. Apague TODO o conteúdo e cole este arquivo inteiro.
  * 3. Troque o valor de CHAVE abaixo por uma senha só sua.
  * 4. Implantar → Nova implantação → tipo "App da Web"
  *    - Executar como: Eu
  *    - Quem pode acessar: Qualquer pessoa
- * 5. Copie a URL que termina em /exec e cole no site (aba Financeiro → Nuvem),
+ * 5. Copie a URL que termina em /exec e cole no site (aba Financeiro → Google Planilhas),
  *    junto com a mesma CHAVE.
+ *
+ * Para atualizar um script que já existe: cole este arquivo no lugar do antigo, salve e vá em
+ * Implantar → Gerenciar implantações → lápis → Versão: "Nova versão" → Implantar. A URL não muda.
  */
 
 const CHAVE = 'COLE_AQUI_SUA_CHAVE';
 
+const VERSAO = 2;
 const ABA_VENDAS = 'Vendas';
+const ABA_CLIENTES = 'Clientes';
 const ABA_CONFIG = 'Config';
 const COLUNAS = [
   'ID', 'Data', 'Peça', 'Material', 'Peso (g)', 'Tempo (h)', 'Quantidade',
   'Custo unit.', 'Preço unit.', 'Taxas unit.', 'Lucro unit.',
   'Custo total', 'Faturamento', 'Lucro líquido', 'Criado em',
+  'Cliente', 'Status', 'Pago em', 'Cliente ID', 'Taxa %', 'Taxa fixa',
 ];
+const COLUNAS_CLIENTES = ['ID', 'Nome', 'WhatsApp', 'Criado em'];
 
 /* ------------------------------------------------------------------ */
 
 function doGet() {
-  return saida({ ok: true, app: 'Planilha', mensagem: 'API funcionando. Use o site para acessar os dados.' });
+  return saida({ ok: true, app: 'Planilha', versao: VERSAO, mensagem: 'API funcionando. Use o site para acessar os dados.' });
 }
 
 function doPost(e) {
@@ -44,11 +51,14 @@ function doPost(e) {
   try {
     switch (req.action) {
       case 'ping':
-        return saida({ ok: true });
+        return saida({ ok: true, versao: VERSAO });
       case 'load':
-        return saida({ ok: true, sales: lerVendas(), investimento: lerInvestimento() });
+        return saida({ ok: true, versao: VERSAO, sales: lerVendas(), clients: lerClientes(), investimento: lerInvestimento() });
       case 'add':
         adicionarVenda(req.sale);
+        return saida({ ok: true });
+      case 'update':
+        atualizarVenda(req.sale);
         return saida({ ok: true });
       case 'delete':
         excluirVenda(req.id);
@@ -59,8 +69,14 @@ function doPost(e) {
       case 'setInvest':
         salvarInvestimento(req.value);
         return saida({ ok: true });
+      case 'saveClient':
+        salvarCliente(req.client);
+        return saida({ ok: true });
+      case 'deleteClient':
+        excluirCliente(req.id);
+        return saida({ ok: true });
       case 'replaceAll':
-        substituirTudo(req.sales || [], req.investimento);
+        substituirTudo(req.sales || [], req.investimento, req.clients);
         return saida({ ok: true });
       default:
         return saida({ ok: false, erro: 'Ação desconhecida.' });
@@ -78,6 +94,12 @@ function saida(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
+function cabecalho(sh, colunas, cor) {
+  sh.getRange(1, 1, 1, colunas.length).setValues([colunas])
+    .setFontWeight('bold').setBackground(cor).setFontColor('#000000');
+  sh.setFrozenRows(1);
+}
+
 function abaVendas() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sh = ss.getSheetByName(ABA_VENDAS);
@@ -86,17 +108,34 @@ function abaVendas() {
       ? ss.getSheets()[0].setName(ABA_VENDAS)
       : ss.insertSheet(ABA_VENDAS);
   }
-  if (sh.getLastRow() === 0) {
-    sh.getRange(1, 1, 1, COLUNAS.length).setValues([COLUNAS])
-      .setFontWeight('bold').setBackground('#c6f432').setFontColor('#000000');
-    sh.setFrozenRows(1);
+  if (sh.getLastRow() === 0 || sh.getLastColumn() < COLUNAS.length) {
+    // planilha nova, ou criada pela versão 1 (sem as colunas de cliente/pagamento)
+    cabecalho(sh, COLUNAS, '#c6f432');
     sh.getRange('A2:A').setNumberFormat('@');
     sh.getRange('B2:B').setNumberFormat('dd/mm/yyyy');
     sh.getRange('E2:E').setNumberFormat('0');
     sh.getRange('F2:F').setNumberFormat('0.0');
     sh.getRange('H2:N').setNumberFormat('"R$" #,##0.00');
     sh.getRange('O2:O').setNumberFormat('dd/mm/yyyy hh:mm');
+    sh.getRange('R2:R').setNumberFormat('dd/mm/yyyy hh:mm');
+    sh.getRange('S2:S').setNumberFormat('@');
     sh.setColumnWidth(3, 220);
+    sh.setColumnWidth(16, 160);
+  }
+  return sh;
+}
+
+function abaClientes() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(ABA_CLIENTES);
+  if (!sh) {
+    sh = ss.insertSheet(ABA_CLIENTES);
+    cabecalho(sh, COLUNAS_CLIENTES, '#86efac');
+    sh.getRange('A2:A').setNumberFormat('@');
+    sh.getRange('C2:C').setNumberFormat('@');
+    sh.getRange('D2:D').setNumberFormat('dd/mm/yyyy hh:mm');
+    sh.setColumnWidth(2, 220);
+    sh.setColumnWidth(3, 150);
   }
   return sh;
 }
@@ -125,8 +164,13 @@ function paraData(iso) {
   return new Date(p[0], p[1] - 1, p[2]);
 }
 
+function pagoDe(s) {
+  return !(s.pago === false || s.pago === 'false' || s.pago === 0);
+}
+
 function linhaDaVenda(s) {
   const qtd = Math.max(1, num(s.qtd));
+  const pago = pagoDe(s);
   return [
     String(s.id),
     paraData(s.data),
@@ -143,6 +187,12 @@ function linhaDaVenda(s) {
     num(s.precoUnit) * qtd,
     num(s.lucroUnit) * qtd,
     s.criadoEm ? new Date(num(s.criadoEm)) : new Date(),
+    String(s.clienteNome || ''),
+    pago ? 'Pago' : 'Pendente',
+    pago && s.pagoEm ? new Date(num(s.pagoEm)) : '',
+    String(s.clienteId || ''),
+    s.taxaPct === undefined || s.taxaPct === null ? '' : num(s.taxaPct),
+    s.taxaFixa === undefined || s.taxaFixa === null ? '' : num(s.taxaFixa),
   ];
 }
 
@@ -154,20 +204,29 @@ function lerVendas() {
   const valores = sh.getRange(2, 1, last - 1, COLUNAS.length).getValues();
   return valores
     .filter((r) => r[0] !== '' && r[0] !== null)
-    .map((r) => ({
-      id: String(r[0]),
-      data: r[1] instanceof Date ? Utilities.formatDate(r[1], tz, 'yyyy-MM-dd') : String(r[1] || ''),
-      nome: String(r[2] || ''),
-      material: String(r[3] || ''),
-      peso: num(r[4]),
-      horas: num(r[5]),
-      qtd: Math.max(1, num(r[6])),
-      custoUnit: num(r[7]),
-      precoUnit: num(r[8]),
-      taxasUnit: num(r[9]),
-      lucroUnit: num(r[10]),
-      criadoEm: r[14] instanceof Date ? r[14].getTime() : 0,
-    }));
+    .map((r) => {
+      const v = {
+        id: String(r[0]),
+        data: r[1] instanceof Date ? Utilities.formatDate(r[1], tz, 'yyyy-MM-dd') : String(r[1] || ''),
+        nome: String(r[2] || ''),
+        material: String(r[3] || ''),
+        peso: num(r[4]),
+        horas: num(r[5]),
+        qtd: Math.max(1, num(r[6])),
+        custoUnit: num(r[7]),
+        precoUnit: num(r[8]),
+        taxasUnit: num(r[9]),
+        lucroUnit: num(r[10]),
+        criadoEm: r[14] instanceof Date ? r[14].getTime() : 0,
+        clienteNome: String(r[15] || ''),
+        pago: String(r[16] || '').toLowerCase() !== 'pendente', // linhas antigas (vazias) contam como pagas
+        pagoEm: r[17] instanceof Date ? r[17].getTime() : 0,
+        clienteId: String(r[18] || ''),
+      };
+      if (r[19] !== '' && r[19] !== null) v.taxaPct = num(r[19]);
+      if (r[20] !== '' && r[20] !== null) v.taxaFixa = num(r[20]);
+      return v;
+    });
 }
 
 function linhaDoId(sh, id) {
@@ -183,8 +242,16 @@ function linhaDoId(sh, id) {
 function adicionarVenda(s) {
   if (!s || !s.id) throw new Error('Venda sem ID.');
   const sh = abaVendas();
-  if (linhaDoId(sh, s.id) !== -1) return; // já existe (envio repetido)
+  if (linhaDoId(sh, s.id) !== -1) return atualizarVenda(s); // já existe (envio repetido)
   sh.appendRow(linhaDaVenda(s));
+}
+
+function atualizarVenda(s) {
+  if (!s || !s.id) throw new Error('Venda sem ID.');
+  const sh = abaVendas();
+  const row = linhaDoId(sh, s.id);
+  if (row === -1) { sh.appendRow(linhaDaVenda(s)); return; }
+  sh.getRange(row, 1, 1, COLUNAS.length).setValues([linhaDaVenda(s)]);
 }
 
 function excluirVenda(id) {
@@ -199,6 +266,42 @@ function limparVendas() {
   if (last > 1) sh.deleteRows(2, last - 1);
 }
 
+/* ---------------------------- Clientes ----------------------------- */
+
+function lerClientes() {
+  const sh = abaClientes();
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  return sh.getRange(2, 1, last - 1, COLUNAS_CLIENTES.length).getValues()
+    .filter((r) => r[0] !== '' && r[0] !== null)
+    .map((r) => ({
+      id: String(r[0]),
+      nome: String(r[1] || ''),
+      telefone: String(r[2] || '').replace(/\D/g, ''),
+      criadoEm: r[3] instanceof Date ? r[3].getTime() : 0,
+    }));
+}
+
+function linhaDoCliente(c) {
+  return [String(c.id), String(c.nome || ''), String(c.telefone || ''), c.criadoEm ? new Date(num(c.criadoEm)) : new Date()];
+}
+
+function salvarCliente(c) {
+  if (!c || !c.id) throw new Error('Cliente sem ID.');
+  const sh = abaClientes();
+  const row = linhaDoId(sh, c.id);
+  if (row === -1) sh.appendRow(linhaDoCliente(c));
+  else sh.getRange(row, 1, 1, COLUNAS_CLIENTES.length).setValues([linhaDoCliente(c)]);
+}
+
+function excluirCliente(id) {
+  const sh = abaClientes();
+  const row = linhaDoId(sh, id);
+  if (row !== -1) sh.deleteRow(row);
+}
+
+/* ------------------------------------------------------------------ */
+
 function lerInvestimento() {
   const v = abaConfig().getRange('B1').getValue();
   return v === '' || v === null ? null : num(v);
@@ -208,10 +311,17 @@ function salvarInvestimento(v) {
   abaConfig().getRange('B1').setValue(num(v));
 }
 
-function substituirTudo(lista, investimento) {
+function substituirTudo(lista, investimento, clientes) {
   limparVendas();
   const sh = abaVendas();
   const linhas = lista.filter((s) => s && s.id).map(linhaDaVenda);
   if (linhas.length) sh.getRange(2, 1, linhas.length, COLUNAS.length).setValues(linhas);
   if (investimento !== undefined && investimento !== null) salvarInvestimento(investimento);
+  if (Array.isArray(clientes)) {
+    const shc = abaClientes();
+    const last = shc.getLastRow();
+    if (last > 1) shc.deleteRows(2, last - 1);
+    const lc = clientes.filter((c) => c && c.id).map(linhaDoCliente);
+    if (lc.length) shc.getRange(2, 1, lc.length, COLUNAS_CLIENTES.length).setValues(lc);
+  }
 }
