@@ -1,5 +1,5 @@
 /**
- * Planilha · API de sincronização com Google Planilhas (versão 3: clientes, pagamentos e produtos)
+ * Planilha · API de sincronização com Google Planilhas (versão 4: clientes, pagamentos, produtos, entregas e observações)
  *
  * Como usar:
  * 1. Crie uma planilha no Google Planilhas.
@@ -17,7 +17,7 @@
 
 const CHAVE = 'COLE_AQUI_SUA_CHAVE';
 
-const VERSAO = 3;
+const VERSAO = 4;
 const ABA_VENDAS = 'Vendas';
 const ABA_CLIENTES = 'Clientes';
 const ABA_PRODUTOS = 'Produtos';
@@ -27,6 +27,7 @@ const COLUNAS = [
   'Custo unit.', 'Preço unit.', 'Taxas unit.', 'Lucro unit.',
   'Custo total', 'Faturamento', 'Lucro líquido', 'Criado em',
   'Cliente', 'Status', 'Pago em', 'Cliente ID', 'Taxa %', 'Taxa fixa', 'Produto ID',
+  'Entrega', 'Produção', 'Observações',
 ];
 const COLUNAS_CLIENTES = ['ID', 'Nome', 'WhatsApp', 'Criado em'];
 const COLUNAS_PRODUTOS = [
@@ -131,6 +132,8 @@ function abaVendas() {
     sh.getRange('R2:R').setNumberFormat('dd/mm/yyyy hh:mm');
     sh.getRange('S2:S').setNumberFormat('@');
     sh.getRange('V2:V').setNumberFormat('@');
+    sh.getRange('W2:W').setNumberFormat('dd/mm/yyyy');
+    sh.setColumnWidth(25, 260);
     sh.setColumnWidth(3, 220);
     sh.setColumnWidth(16, 160);
   }
@@ -206,6 +209,9 @@ function linhaDaVenda(s) {
     s.taxaPct === undefined || s.taxaPct === null ? '' : num(s.taxaPct),
     s.taxaFixa === undefined || s.taxaFixa === null ? '' : num(s.taxaFixa),
     String(s.produtoId || ''),
+    paraData(s.entrega),
+    s.status === 'andamento' ? 'Em andamento' : 'Entregue',
+    String(s.obs || ''),
   ];
 }
 
@@ -239,6 +245,9 @@ function lerVendas() {
       if (r[19] !== '' && r[19] !== null) v.taxaPct = num(r[19]);
       if (r[20] !== '' && r[20] !== null) v.taxaFixa = num(r[20]);
       v.produtoId = String(r[21] || '');
+      v.entrega = r[22] instanceof Date ? Utilities.formatDate(r[22], tz, 'yyyy-MM-dd') : String(r[22] || '');
+      v.status = String(r[23] || '').toLowerCase() === 'em andamento' ? 'andamento' : 'entregue';
+      v.obs = String(r[24] || '');
       return v;
     });
 }
