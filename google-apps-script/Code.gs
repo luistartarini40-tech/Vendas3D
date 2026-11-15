@@ -1,5 +1,5 @@
 /**
- * Planilha · API de sincronização com Google Planilhas (versão 4: clientes, pagamentos, produtos, entregas e observações)
+ * Planilha · API de sincronização com Google Planilhas (versão 5: clientes, pagamentos, produtos, produtos montados com partes, entregas e observações)
  *
  * Como usar:
  * 1. Crie uma planilha no Google Planilhas.
@@ -17,7 +17,7 @@
 
 const CHAVE = 'COLE_AQUI_SUA_CHAVE';
 
-const VERSAO = 4;
+const VERSAO = 5;
 const ABA_VENDAS = 'Vendas';
 const ABA_CLIENTES = 'Clientes';
 const ABA_PRODUTOS = 'Produtos';
@@ -33,6 +33,7 @@ const COLUNAS_CLIENTES = ['ID', 'Nome', 'WhatsApp', 'Criado em'];
 const COLUNAS_PRODUTOS = [
   'ID', 'Produto', 'Material', 'Peso total (g)', 'Tempo total (h)', 'Peças por impressão', 'Seu tempo (min)',
   'Margem %', 'Taxa %', 'Taxa fixa', 'Custo por peça', 'Preço por peça', 'Criado em', 'Atualizado em',
+  'Partes (produto montado)', 'Montagem',
 ];
 
 /* ------------------------------------------------------------------ */
@@ -335,8 +336,27 @@ function abaProdutos() {
     sh.getRange('K2:L').setNumberFormat('"R$" #,##0.00');
     sh.getRange('M2:N').setNumberFormat('dd/mm/yyyy hh:mm');
     sh.setColumnWidth(2, 220);
+  } else if (sh.getLastColumn() < COLUNAS_PRODUTOS.length) {
+    cabecalho(sh, COLUNAS_PRODUTOS, '#fde68a'); // planilha de versão anterior: ganha as colunas novas
   }
   return sh;
+}
+
+// Produto final montado com partes: lista legível + dados em JSON para o site
+function partesLegiveis(p) {
+  if (p.tipo !== 'kit' || !Array.isArray(p.componentes)) return '';
+  const nomes = {};
+  lerProdutosSimples().forEach((x) => { nomes[x.id] = x.nome; });
+  return p.componentes.map((c) => (c.qtd > 1 ? c.qtd + 'x ' : '') + (nomes[c.produtoId] || c.produtoId)).join(' + ');
+}
+function montagemTexto(p) {
+  if (p.tipo !== 'kit') return '';
+  return JSON.stringify({ tipo: 'kit', componentes: p.componentes || [], montagemMin: num(p.montagemMin), precoManual: !!p.precoManual });
+}
+function lerProdutosSimples() {
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ABA_PRODUTOS);
+  if (!sh || sh.getLastRow() < 2) return [];
+  return sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues().map((r) => ({ id: String(r[0]), nome: String(r[1] || '') }));
 }
 
 function linhaDoProduto(p) {
@@ -346,6 +366,8 @@ function linhaDoProduto(p) {
     num(p.margem), num(p.taxaPct), num(p.taxaFixa), num(p.custoUnit), num(p.precoUnit),
     p.criadoEm ? new Date(num(p.criadoEm)) : new Date(),
     p.atualizadoEm ? new Date(num(p.atualizadoEm)) : new Date(),
+    partesLegiveis(p),
+    montagemTexto(p),
   ];
 }
 
@@ -361,6 +383,7 @@ function lerProdutos() {
       margem: num(r[7]), taxaPct: num(r[8]), taxaFixa: num(r[9]), custoUnit: num(r[10]), precoUnit: num(r[11]),
       criadoEm: r[12] instanceof Date ? r[12].getTime() : 0,
       atualizadoEm: r[13] instanceof Date ? r[13].getTime() : 0,
+      kit: String(r[15] || ''),
     }));
 }
 
