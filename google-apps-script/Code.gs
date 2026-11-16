@@ -1,5 +1,5 @@
 /**
- * Planilha · API de sincronização com Google Planilhas (versão 6: clientes, pagamentos, produtos com partes, entregas e observações)
+ * Planilha · API de sincronização com Google Planilhas (versão 5: clientes, pagamentos, produtos, produtos montados com partes, entregas e observações)
  *
  * Como usar:
  * 1. Crie uma planilha no Google Planilhas.
@@ -17,7 +17,7 @@
 
 const CHAVE = 'COLE_AQUI_SUA_CHAVE';
 
-const VERSAO = 6;
+const VERSAO = 5;
 const ABA_VENDAS = 'Vendas';
 const ABA_CLIENTES = 'Clientes';
 const ABA_PRODUTOS = 'Produtos';
@@ -344,20 +344,13 @@ function abaProdutos() {
 
 // Produto final montado com partes: lista legível + dados em JSON para o site
 function partesLegiveis(p) {
-  if (p.tipo !== 'kit' && Array.isArray(p.partes) && p.partes.length > 1) {
-    return p.partes.map((x) => (x.nome || 'Parte') + ' (' + num(x.pesoTotal) + ' g, ' + num(x.horasTotal) + ' h' + (num(x.pecas) > 1 ? ', ' + num(x.pecas) + ' por impressão' : '') + ')').join(' + ');
-  }
   if (p.tipo !== 'kit' || !Array.isArray(p.componentes)) return '';
   const nomes = {};
   lerProdutosSimples().forEach((x) => { nomes[x.id] = x.nome; });
   return p.componentes.map((c) => (c.qtd > 1 ? c.qtd + 'x ' : '') + (nomes[c.produtoId] || c.produtoId)).join(' + ');
 }
 function montagemTexto(p) {
-  if (p.tipo !== 'kit') {
-    return Array.isArray(p.partes) && p.partes.length > 1
-      ? JSON.stringify({ partes: p.partes, montagemMin: num(p.montagemMin) })
-      : '';
-  }
+  if (p.tipo !== 'kit') return '';
   return JSON.stringify({ tipo: 'kit', componentes: p.componentes || [], montagemMin: num(p.montagemMin), precoManual: !!p.precoManual });
 }
 function lerProdutosSimples() {
