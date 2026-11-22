@@ -1,5 +1,5 @@
 /**
- * Planilha · API de sincronização com Google Planilhas (versão 6: clientes, pagamentos, produtos com partes, entregas e observações)
+ * Planilha · API de sincronização com Google Planilhas (versão 7: + imagens dos produtos no Google Drive e vitrine pública)
  *
  * Como usar:
  * 1. Crie uma planilha no Google Planilhas.
@@ -11,13 +11,16 @@
  * 5. Copie a URL que termina em /exec e cole no site (aba Financeiro → Google Planilhas),
  *    junto com a mesma CHAVE.
  *
+ * Na versão 7 o Google pede uma autorização nova (acesso ao Drive, para guardar as imagens).
+ * Link da vitrine: a mesma URL /exec com ?vitrine=1 no final.
+ *
  * Para atualizar um script que já existe: cole este arquivo no lugar do antigo, salve e vá em
  * Implantar → Gerenciar implantações → lápis → Versão: "Nova versão" → Implantar. A URL não muda.
  */
 
 const CHAVE = 'COLE_AQUI_SUA_CHAVE';
 
-const VERSAO = 6;
+const VERSAO = 7;
 const ABA_VENDAS = 'Vendas';
 const ABA_CLIENTES = 'Clientes';
 const ABA_PRODUTOS = 'Produtos';
@@ -38,7 +41,8 @@ const COLUNAS_PRODUTOS = [
 
 /* ------------------------------------------------------------------ */
 
-function doGet() {
+function doGet(e) {
+  if (e && e.parameter && e.parameter.vitrine) return paginaVitrine();
   return saida({ ok: true, app: 'Planilha', versao: VERSAO, mensagem: 'API funcionando. Use o site para acessar os dados.' });
 }
 
@@ -88,6 +92,21 @@ function doPost(e) {
       case 'deleteProduct':
         excluirProduto(req.id);
         return saida({ ok: true });
+      case 'lerImagens':
+        return saida({ ok: true, imagens: lerJson('imagens') });
+      case 'salvarImagem': {
+        const imgs = lerJson('imagens');
+        const chave = String(req.chave || '');
+        if (!/^p:[\w-]+$/.test(chave)) return saida({ ok: false, erro: 'Imagem inválida.' });
+        const dado = String(req.imagem || '');
+        if (dado && !/^data:image\/(jpeg|png|webp);base64,/.test(dado)) return saida({ ok: false, erro: 'Imagem inválida.' });
+        imgs[chave] = dado;
+        gravarJson('imagens', imgs);
+        return saida({ ok: true });
+      }
+      case 'publicarVitrine':
+        gravarJson('vitrine', Object.assign({}, req.vitrine || {}, { publicadaEm: new Date().toISOString() }));
+        return saida({ ok: true });
       case 'replaceAll':
         substituirTudo(req.sales || [], req.investimento, req.clients, req.products);
         return saida({ ok: true });
@@ -123,7 +142,7 @@ function abaVendas() {
   }
   if (sh.getLastRow() === 0 || sh.getLastColumn() < COLUNAS.length) {
     // planilha nova, ou criada pela versão 1 (sem as colunas de cliente/pagamento)
-    cabecalho(sh, COLUNAS, '#c6f432');
+    cabecalho(sh, COLUNAS, '#8db0ff');
     sh.getRange('A2:A').setNumberFormat('@');
     sh.getRange('B2:B').setNumberFormat('dd/mm/yyyy');
     sh.getRange('E2:E').setNumberFormat('0');
@@ -439,4 +458,65 @@ function substituirTudo(lista, investimento, clientes, produtos) {
     const lp = produtos.filter((p) => p && p.id).map(linhaDoProduto);
     if (lp.length) shp.getRange(2, 1, lp.length, COLUNAS_PRODUTOS.length).setValues(lp);
   }
+}
+
+/* ------------------------- Imagens e vitrine (versão 7) ------------------------- */
+// Guardadas como arquivos JSON no seu Google Drive (só você tem acesso aos arquivos).
+
+function arquivoJson(nome) {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty('arquivo_' + nome);
+  if (id) { try { return DriveApp.getFileById(id); } catch (err) { /* apagado: cria outro */ } }
+  const f = DriveApp.createFile('Planilha 3D - ' + nome + '.json', '{}', 'application/json');
+  props.setProperty('arquivo_' + nome, f.getId());
+  return f;
+}
+function lerJson(nome) {
+  try { return JSON.parse(arquivoJson(nome).getBlob().getDataAsString() || '{}') || {}; } catch (err) { return {}; }
+}
+function gravarJson(nome, obj) { arquivoJson(nome).setContent(JSON.stringify(obj)); }
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; });
+}
+function reais(v) {
+  return 'R$ ' + (Number(v) || 0).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+function paginaVitrine() {
+  const v = lerJson('vitrine');
+  const imgs = lerJson('imagens');
+  const itens = Array.isArray(v.itens) ? v.itens : [];
+  let whats = String(v.whats || '').replace(/\D/g, '');
+  if (whats && whats.length <= 11) whats = '55' + whats;
+  const insta = String(v.insta || '').replace(/^@/, '');
+  const cards = itens.map(function (it) {
+    const img = imgs['p:' + it.id];
+    const msg = 'Oi! Vi na vitrine e quero: ' + it.nome + ' (' + reais(it.preco) + ')';
+    const kits = (it.kits || []).map(function (k) { return 'kit ' + k.n + ': ' + reais(k.preco); }).join(' · ');
+    return '<div class="card">' +
+      (img ? '<img src="' + img + '" alt="' + esc(it.nome) + '" loading="lazy">' : '<div class="semimg">Impresso em 3D</div>') +
+      '<div class="info"><p class="nome">' + esc(it.nome) + '</p><p class="preco">' + reais(it.preco) + '</p>' +
+      (kits ? '<p class="kits">' + esc(kits) + '</p>' : '') +
+      (whats ? '<a class="btn" target="_blank" rel="noopener" href="https://wa.me/' + whats + '?text=' + encodeURIComponent(msg) + '">Pedir pelo WhatsApp</a>' : '') +
+      '</div></div>';
+  }).join('');
+  const html = '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><base target="_blank">' +
+    '<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">' +
+    '<style>*{box-sizing:border-box}body{margin:0;font-family:"Space Grotesk",system-ui,sans-serif;color:#f4f4f5;background:#07070c radial-gradient(60rem 40rem at 10% -10%,rgba(91,140,255,.22),transparent 60%) no-repeat}' +
+    '.wrap{max-width:1100px;margin:0 auto;padding:28px 18px 60px}h1{margin:0;font-size:30px}.sub{color:#a1a1aa;margin:6px 0 22px;font-size:14px}.sub a{color:#8db0ff;text-decoration:none}' +
+    '.tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.14em;color:#8db0ff;background:rgba(91,140,255,.14);padding:5px 10px;border-radius:99px;margin-bottom:10px}' +
+    '.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}.card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:18px;overflow:hidden;display:flex;flex-direction:column}' +
+    '.card img,.semimg{width:100%;aspect-ratio:1/1;object-fit:cover;display:block;background:#141421}.semimg{display:grid;place-items:center;color:#52525b;font-size:13px}' +
+    '.info{padding:14px;display:flex;flex-direction:column;gap:4px;flex:1}.nome{margin:0;font-weight:600}.preco{margin:0;font-size:22px;font-weight:700;color:#8db0ff}.kits{margin:0;font-size:12px;color:#a1a1aa}' +
+    '.btn{margin-top:auto;display:block;text-align:center;background:#5b8cff;color:#05070f;font-weight:700;text-decoration:none;padding:11px;border-radius:12px;margin-top:12px}' +
+    '.vazio{color:#71717a;text-align:center;padding:60px 0}footer{color:#52525b;font-size:12px;text-align:center;margin-top:30px}</style></head><body><div class="wrap">' +
+    '<span class="tag">IMPRESSÃO 3D</span><h1>' + esc(v.loja || 'Vitrine') + '</h1>' +
+    '<p class="sub">' + esc(v.titulo || 'Nossos produtos') + (insta ? ' · <a href="https://instagram.com/' + encodeURIComponent(insta) + '">@' + esc(insta) + '</a>' : '') + '</p>' +
+    (cards ? '<div class="grid">' + cards + '</div>' : '<p class="vazio">Nenhum produto publicado ainda.</p>') +
+    '<footer>Peças feitas sob encomenda · escolha a cor que preferir</footer></div></body></html>';
+  return HtmlService.createHtmlOutput(html)
+    .setTitle(v.loja || 'Vitrine')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
