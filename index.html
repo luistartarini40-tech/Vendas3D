@@ -3498,6 +3498,10 @@
             // script antigo não guarda imagens
           } else if ((op.action === 'saveProduct' || op.action === 'deleteProduct') && (cloud.versao || 1) < 3) {
             // script antigo não guarda produtos: ficam só neste aparelho
+          } else if (op.action === 'salvarImagem' || op.action === 'publicarVitrine') {
+            // imagem/vitrine com erro não pode travar as vendas: avisa e segue
+            try { await api(op.action, op.payload); }
+            catch (err) { toast('A planilha não aceitou a imagem: ' + err.message + ' (rode a função "autorizar" no Apps Script).', 'error'); }
           } else {
             await api(op.action, op.payload);
           }

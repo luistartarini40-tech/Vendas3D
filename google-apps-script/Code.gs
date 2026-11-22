@@ -11,7 +11,8 @@
  * 5. Copie a URL que termina em /exec e cole no site (aba Financeiro → Google Planilhas),
  *    junto com a mesma CHAVE.
  *
- * Na versão 7 o Google pede uma autorização nova (acesso ao Drive, para guardar as imagens).
+ * Na versão 7 o Google pede uma autorização nova (acesso ao Drive, para guardar as imagens):
+ * no editor, escolha a função "autorizar" no menu de cima e clique em Executar → Permitir.
  * Link da vitrine: a mesma URL /exec com ?vitrine=1 no final.
  *
  * Para atualizar um script que já existe: cole este arquivo no lugar do antigo, salve e vá em
@@ -461,13 +462,20 @@ function substituirTudo(lista, investimento, clientes, produtos) {
 }
 
 /* ------------------------- Imagens e vitrine (versão 7) ------------------------- */
+
+// Rode esta função uma vez no editor (botão Executar) para o Google liberar o acesso ao Drive.
+function autorizar() {
+  DriveApp.getRootFolder();
+  gravarJson('teste', { ok: true });
+  Logger.log('Tudo certo! Agora vá em Implantar → Gerenciar implantações → Nova versão.');
+}
 // Guardadas como arquivos JSON no seu Google Drive (só você tem acesso aos arquivos).
 
 function arquivoJson(nome) {
   const props = PropertiesService.getScriptProperties();
   const id = props.getProperty('arquivo_' + nome);
   if (id) { try { return DriveApp.getFileById(id); } catch (err) { /* apagado: cria outro */ } }
-  const f = DriveApp.createFile('Planilha 3D - ' + nome + '.json', '{}', 'application/json');
+  const f = DriveApp.createFile('Planilha 3D - ' + nome + '.json', '{}', MimeType.PLAIN_TEXT);
   props.setProperty('arquivo_' + nome, f.getId());
   return f;
 }
