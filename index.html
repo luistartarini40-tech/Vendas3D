@@ -1306,6 +1306,8 @@
       prodSeeded: 'print3d_products_seeded_v1',
       images: 'print3d_images_v1',
       lotes: 'print3d_ideias_lotes_v1',
+      ideiasFeitas: 'print3d_ideias_feitas_v1',
+      ideiasExcluidas: 'print3d_ideias_excluidas_v1',
       loja: 'print3d_loja_v1',
       recompra: 'print3d_recompra_v1',
       vitrine: 'print3d_vitrine_v1',
@@ -2928,6 +2930,7 @@
         sales.forEach((s) => { if (s.produtoId === p.id) { s.nome = p.nome; cloudQueue('update', { sale: s }); } });
         store.set(KEYS.sales, sales);
       }
+      if (!antigo) marcarIdeiaFeita(p.id);
       const kitsAfetados = kitsWith(p.id);
       recomputeKits(p.id);
       toast(antigo
@@ -2941,6 +2944,7 @@
 
     // Limpa a calculadora para cadastrar um produto novo (mantém margem, canal e seu tempo)
     function startNewProduct(silent) {
+      ideiaPendente = '';
       Object.assign(settings, { nome: '', peso: '', horas: '', pecas: '1', editProdId: '', parte1Nome: '', extras: [] });
       saveSettings(); fillInputs();
       $('#precoFinal').value = '';
@@ -3760,37 +3764,62 @@
 
     $('#ideiaBusca').addEventListener('input', () => renderIdeias());
 
+    // Ideia "feita" = virou produto (pelo botão Calcular ou com o mesmo nome). "Excluída" = você descartou.
+    var ideiaPendente = '';
+    let ideiasFeitas = store.get(KEYS.ideiasFeitas, {});
+    if (!ideiasFeitas || typeof ideiasFeitas !== 'object') ideiasFeitas = {};
+    let ideiasExcluidas = store.get(KEYS.ideiasExcluidas, []);
+    if (!Array.isArray(ideiasExcluidas)) ideiasExcluidas = [];
+    const ideiaFeita = (i) => (ideiasFeitas[i.id] && productById(ideiasFeitas[i.id])) || productByName(i.nome);
+    const ideiaAberta = (i) => !ideiaFeita(i) && !ideiasExcluidas.includes(i.id);
+
+    function marcarIdeiaFeita(produtoId) {
+      if (!ideiaPendente) return;
+      ideiasFeitas[ideiaPendente] = produtoId;
+      store.set(KEYS.ideiasFeitas, ideiasFeitas);
+      ideiaPendente = '';
+    }
+
+    // Quando as ideias abertas acabam, libera o próximo lote sozinho
+    function liberarProximo() {
+      let novo = false;
+      while (lotesVistos < LOTES.length && !IDEIAS.some((i) => i.lote < lotesVistos && ideiaAberta(i))) { lotesVistos++; novo = true; }
+      if (novo) store.set(KEYS.lotes, lotesVistos);
+      return novo;
+    }
+
     function renderIdeias() {
       if (!$('#ideiaLista')) return;
+      const novo = liberarProximo();
       const q = normNome($('#ideiaBusca').value);
       const vis = IDEIAS.filter((i) => i.lote < lotesVistos);
-      const dentro = vis.filter((i) => productByName(i.nome)).length;
-      $('#ideiaInfo').textContent = `${vis.length} ideias · ${dentro} já calculadas`;
+      const abertas = vis.filter(ideiaAberta);
+      const feitas = vis.filter((i) => ideiaFeita(i)).length;
+      const excl = vis.filter((i) => ideiasExcluidas.includes(i.id) && !ideiaFeita(i)).length;
+      $('#ideiaInfo').textContent = `${abertas.length} para fazer · ${feitas} já viraram produto${excl ? ` · ${excl} excluída(s)` : ''}`;
       const acabou = lotesVistos >= LOTES.length;
       $('#btnMaisIdeias').textContent = acabou ? 'Pedir pesquisa nova ao Claude' : '+ Gerar mais 10 ideias';
       const grupos = [];
       for (let n = lotesVistos - 1; n >= 0; n--) {
-        const itens = vis.filter((i) => i.lote === n && (!q || normNome(i.nome).includes(q)));
+        const itens = abertas.filter((i) => i.lote === n && (!q || normNome(i.nome).includes(q)));
         if (!itens.length) continue;
         grupos.push(`
           <div>
             <p class="text-[11px] text-zinc-500 mb-2"><span class="font-semibold text-zinc-300">Lote ${n + 1}</span> · ${escapeHTML(LOTES[n].fonte)} · ${fmtDate(LOTES[n].data)}</p>
             <div class="rounded-xl border border-white/5 divide-y divide-white/5 overflow-hidden">
-              ${itens.map((i) => {
-                const prod = productByName(i.nome);
-                return `
-                <div class="flex items-center gap-3 px-3 py-2.5 bg-black/20">
-                  ${prod && imgOf(prod) ? `<img src="${imgOf(prod)}" class="thumb-sm" alt="" />` : ''}
+              ${itens.map((i) => `
+                <div class="flex items-center gap-2 px-3 py-2.5 bg-black/20">
                   <p class="flex-1 min-w-0 truncate text-sm">${escapeHTML(i.nome)}</p>
-                  ${prod ? `<span class="num text-sm font-semibold text-brand-300">${fmt(prod.precoUnit)}</span>` : ''}
-                  <button type="button" class="btn-sec !py-1.5 !px-3 shrink-0" data-ideia-calc="${i.id}">${prod ? 'Editar' : 'Calcular'}</button>
-                </div>`;
-              }).join('')}
+                  <button type="button" class="btn-sec !py-1.5 !px-3 shrink-0" data-ideia-calc="${i.id}">Calcular</button>
+                  <button type="button" class="icon-btn del" data-ideia-del="${i.id}" title="Excluir ideia" aria-label="Excluir ideia">${ICON.del}</button>
+                </div>`).join('')}
             </div>
           </div>`);
       }
+      $('#ideiaVazio').textContent = q ? 'Nenhuma ideia encontrada.' : 'Você fez todas as ideias! Peça ao Claude uma pesquisa nova para ganhar mais 10.';
       $('#ideiaVazio').classList.toggle('hidden', grupos.length > 0);
       $('#ideiaLista').innerHTML = grupos.join('');
+      if (novo) toast(`Novas ideias liberadas: ${LOTES[lotesVistos - 1].fonte}.`);
     }
 
     $('#btnMaisIdeias').addEventListener('click', () => {
@@ -3805,17 +3834,25 @@
       toast(`Mais 10 ideias: ${LOTES[lotesVistos - 1].fonte}.`);
     });
 
-    // Leva o nome para a calculadora; peso e tempo você coloca do fatiador
     $('#ideiaLista').addEventListener('click', (e) => {
+      const d = e.target.closest('[data-ideia-del]');
+      if (d) {
+        const id = d.dataset.ideiaDel;
+        ideiasExcluidas.push(id); store.set(KEYS.ideiasExcluidas, ideiasExcluidas);
+        renderIdeias();
+        const i = IDEIAS.find((x) => x.id === id);
+        toast(`“${i ? i.nome : 'Ideia'}” excluída.`, 'info');
+        return;
+      }
+      // Leva o nome para a calculadora; peso e tempo você coloca do fatiador
       const c = e.target.closest('[data-ideia-calc]'); if (!c) return;
       const i = IDEIAS.find((x) => x.id === c.dataset.ideiaCalc); if (!i) return;
-      const prod = productByName(i.nome);
-      if (prod) return loadProductInCalc(prod);
       startNewProduct(true);
+      ideiaPendente = i.id;
       settings.nome = i.nome; saveSettings(); fillInputs(); renderCalc(); fillProductDatalist();
       switchTab('calc');
       setTimeout(() => $('#peso').focus(), 150);
-      toast('Coloque o peso e o tempo do fatiador e toque em “Salvar produto”.', 'info');
+      toast('Coloque o peso e o tempo do fatiador e toque em “Salvar produto”. A ideia sai da lista sozinha.', 'info');
     });
 
     /* ========================= Loja (dados usados nos posts e na vitrine) ========================= */
