@@ -2375,12 +2375,13 @@
       if (dp) return deleteProduct(dp.dataset.delProd);
       const ek = e.target.closest('[data-edit-kit]');
       if (ek) return openKitModal(ek.dataset.editKit);
-      if (e.target.closest('[data-del-prod]')) { /* tratado abaixo */ }
-      else { const ok = e.target.closest('[data-open-kit]'); if (ok) return openKitPanel(ok.dataset.openKit); }
+      // botões de dentro do card vêm antes do clique no card inteiro (que abre as partes)
       const po = e.target.closest('[data-post]');
       if (po) return abrirPost(po.dataset.post);
       const cp = e.target.closest('[data-calc-prod]');
       if (cp) { const p = productById(cp.dataset.calcProd); if (p) loadProductInCalc(p); return; }
+      const ok = e.target.closest('[data-open-kit]');
+      if (ok) return openKitPanel(ok.dataset.openKit);
     });
 
     /* ========================= Clientes ========================= */
@@ -2847,7 +2848,7 @@
           ${comPartes ? `<p class="text-[11px] text-zinc-400 mt-2 line-clamp-2">${escapeHTML(p.partes.map((x) => x.nome).join(' + '))}</p>` : ''}
           <div class="flex gap-2 mt-3 pt-3 border-t border-white/5">
             ${comPartes ? `<button class="flex-1 rounded-xl border border-brand-400/30 bg-brand-400/10 hover:bg-brand-400/20 text-brand-200 text-sm font-medium py-2 transition" data-open-kit="${p.id}">Ver partes</button>` : ''}
-            <button class="flex-1 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-sm font-medium py-2 transition inline-flex items-center justify-center gap-2" data-calc-prod="${p.id}">${ICON.edit} Na calculadora</button>
+            <button class="flex-1 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-sm font-medium py-2 transition inline-flex items-center justify-center gap-2" data-calc-prod="${p.id}">${ICON.edit} <span class="whitespace-nowrap">${comPartes ? 'Calculadora' : 'Na calculadora'}</span></button>
             <button class="rounded-xl border border-brand-400/30 bg-brand-400/10 hover:bg-brand-400/20 text-brand-200 text-sm font-medium py-2 px-3 transition" data-post="${p.id}">Post</button>
           </div>
         </div>`;
